@@ -26,6 +26,9 @@ namespace LoadView
         public bool Percent = true;  // true: 0..100; false: auto-scaled rate
         public bool Available = true;
         public double MinScale = 1;  // floor for auto-scale
+        public double FixedMax = 0;          // 0 = auto (or 100 for percent graphs)
+        public double AlertThreshold = 0;    // 0 = off; when latest sample >= this, the graph turns red
+        public Color AlertColor = Color.FromArgb(0xE0, 0x4F, 0x4F);
 
         private static readonly Color PanelBack = Color.FromArgb(26, 26, 30);
         private static readonly Color GridColor = Color.FromArgb(45, 45, 52);
@@ -64,6 +67,15 @@ namespace LoadView
             Invalidate();
         }
 
+        // Drop all history (used when the network unit changes, to avoid mixed-unit data).
+        public void ClearHistory()
+        {
+            Array.Clear(_a, 0, Capacity);
+            Array.Clear(_b, 0, Capacity);
+            _count = 0;
+            Invalidate();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
@@ -73,8 +85,12 @@ namespace LoadView
             int pad = Math.Max(4, r.Width / 40);
             int headerH = TitleFont().Height + 2;
 
+            bool alert = Available && AlertThreshold > 0 && LatestPeak() >= AlertThreshold;
+            Color seriesA = alert ? AlertColor : Accent;
+            Color seriesB = alert ? AlertColor : Accent2;
+
             TextRenderer.DrawText(g, Title, TitleFont(), new Point(pad, pad),
-                Available ? Accent : DimColor, TextFormatFlags.NoPadding);
+                Available ? seriesA : DimColor, TextFormatFlags.NoPadding);
             Size vsz = TextRenderer.MeasureText(g, ValueText, Font);
             TextRenderer.DrawText(g, ValueText, Font, new Point(r.Right - pad - vsz.Width, pad),
                 ValueColor, TextFormatFlags.NoPadding);
@@ -99,12 +115,21 @@ namespace LoadView
                 return;
             }
 
-            double max = Percent ? 100.0 : NiceMax(VisibleMax());
+            double max = FixedMax > 0 ? FixedMax : (Percent ? 100.0 : NiceMax(VisibleMax()));
 
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            DrawSeries(g, gr, _a, max, Accent, true);
-            if (_two) DrawSeries(g, gr, _b, max, Accent2, false);
+            DrawSeries(g, gr, _a, max, seriesA, true);
+            if (_two) DrawSeries(g, gr, _b, max, seriesB, false);
             // Nothing is drawn inside the plot area itself — the title/value live in the header above.
+        }
+
+        // The most recent sample (max of both series for the two-series network graph).
+        private double LatestPeak()
+        {
+            if (_count < 1) return 0;
+            double v = _a[Capacity - 1];
+            if (_two && _b[Capacity - 1] > v) v = _b[Capacity - 1];
+            return v;
         }
 
         private double VisibleMax()
