@@ -26,7 +26,6 @@ namespace LoadView
         public bool Percent = true;  // true: 0..100; false: auto-scaled rate
         public bool Available = true;
         public double MinScale = 1;  // floor for auto-scale
-        public Func<double, string> ScaleLabeler; // when set + !Percent, draws the ceiling label
 
         private static readonly Color PanelBack = Color.FromArgb(26, 26, 30);
         private static readonly Color GridColor = Color.FromArgb(45, 45, 52);
@@ -105,15 +104,7 @@ namespace LoadView
             g.SmoothingMode = SmoothingMode.AntiAlias;
             DrawSeries(g, gr, _a, max, Accent, true);
             if (_two) DrawSeries(g, gr, _b, max, Accent2, false);
-
-            // Auto-scale ceiling label (e.g. network "200 Mbps"), so the magnitude is readable.
-            if (!Percent && ScaleLabeler != null)
-            {
-                string label = ScaleLabeler(max);
-                Size ls = TextRenderer.MeasureText(g, label, Font);
-                TextRenderer.DrawText(g, label, Font, new Point(gr.Right - ls.Width - 3, gr.Top + 1),
-                    DimColor, TextFormatFlags.NoPadding);
-            }
+            // Nothing is drawn inside the plot area itself — the title/value live in the header above.
         }
 
         private double VisibleMax()
