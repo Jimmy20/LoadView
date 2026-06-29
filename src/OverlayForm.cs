@@ -2,16 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace LoadView
 {
-    // The draggable, semi-transparent overlay. Top to bottom: clock, metric graphs
-    // (CPU/GPU/MEM/DISK/NET), drive usage bars, date + weekday. Everything sizable,
-    // colorable and toggleable from the Settings dialog; can float on top or behave
-    // like a normal (coverable) window.
+    // The draggable, semi-transparent overlay. Sections (clock, metric graphs, net totals,
+    // top processes, drives, IP, date/weekday) are laid out in a user-defined order; each is
+    // sizable/colorable/toggleable from Settings. Can float on top or behave like a normal
+    // (coverable) window.
     internal sealed class OverlayForm : Form
     {
         [DllImport("user32.dll")]
@@ -33,16 +32,20 @@ namespace LoadView
 
         private const int WM_DPICHANGED = 0x02E0;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
-
         private const double GiB = 1024.0 * 1024.0 * 1024.0;
 
         private readonly MetricsSampler _sampler;
+        private readonly ProcessSampler _procs;
+        private readonly SystemInfoProvider _sysinfo;
         private readonly Timer _timer;
         private Settings _settings;
 
         private ClockPanel _clock;
         private GraphPanel _cpu, _gpu, _ram, _disk, _net;
+        private NetTotalsPanel _netTotals;
+        private ListPanel _topCpu, _topRam;
         private DrivesPanel _drives;
+        private IpPanel _ip;
         private FooterPanel _footer;
 
         private ContextMenuStrip _menu;
@@ -53,20 +56,25 @@ namespace LoadView
         private Point _dragMouseStart;
         private Point _dragFormStart;
 
-        private int _driveTick;
         private string _driveSig = "";
+        private bool _lastNetUnitBytes;
+        private double _totalDownBytes, _totalUpBytes;
 
         public OverlayForm()
         {
             _settings = Settings.Load();
+            Log.Enabled = _settings.DebugLog;
+            _lastNetUnitBytes = _settings.NetUnitBytes;
             _sampler = new MetricsSampler();
+            _procs = new ProcessSampler();
+            _sysinfo = new SystemInfoProvider();
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
             AutoScaleMode = AutoScaleMode.None;
-            BackColor = Color.FromArgb(12, 12, 14); // shows through 1px gaps as separators
+            BackColor = Color.FromArgb(12, 12, 14);
             Font = new Font("Segoe UI", 9f);
             DoubleBuffered = true;
             Text = "LoadView";
@@ -83,7 +91,6 @@ namespace LoadView
 
         protected override CreateParams CreateParams
         {
-            // Tool window => no taskbar button and no Alt+Tab entry.
             get { CreateParams cp = base.CreateParams; cp.ExStyle |= WS_EX_TOOLWINDOW; return cp; }
         }
 
@@ -92,20 +99,26 @@ namespace LoadView
         private void BuildPanels()
         {
             _clock = new ClockPanel();
-
-            _cpu  = NewGraph("CPU",  false, Color.FromArgb(0x4F, 0x8C, 0xFF));
-            _gpu  = NewGraph("GPU",  false, Color.FromArgb(0x36, 0xC7, 0x9B));
-            _ram  = NewGraph("MEM",  false, Color.FromArgb(0xB0, 0x7C, 0xFF));
-            _disk = NewGraph("DISK", false, Color.FromArgb(0x6F, 0xD0, 0x57));
-            _net  = NewGraph("NET",  true,  Color.FromArgb(0xFF, 0x9F, 0x40));
+            _cpu  = NewGraph("CPU",  false);
+            _gpu  = NewGraph("GPU",  false);
+            _ram  = NewGraph("MEM",  false);
+            _disk = NewGraph("DISK", false);
+            _net  = NewGraph("NET",  true);
             _net.Accent2 = Color.FromArgb(0x55, 0xD6, 0xFF);
             _net.Percent = false;
-            _net.MinScale = 1; // 1 Mbps floor
 
+            _netTotals = new NetTotalsPanel();
+            _topCpu = new ListPanel(); _topCpu.Header = "TOP CPU"; _topCpu.IsBytes = false;
+            _topRam = new ListPanel(); _topRam.Header = "TOP RAM"; _topRam.IsBytes = true;
             _drives = new DrivesPanel();
+            _ip = new IpPanel();
             _footer = new FooterPanel();
 
-            Control[] all = new Control[] { _clock, _cpu, _gpu, _ram, _disk, _net, _drives, _footer };
+            Control[] all = new Control[]
+            {
+                _clock, _cpu, _gpu, _ram, _disk, _net,
+                _netTotals, _topCpu, _topRam, _drives, _ip, _footer
+            };
             foreach (Control c in all)
             {
                 c.ContextMenuStrip = SharedMenu();
@@ -114,12 +127,31 @@ namespace LoadView
             }
         }
 
-        private static GraphPanel NewGraph(string title, bool two, Color accent)
+        private static GraphPanel NewGraph(string title, bool two)
         {
             GraphPanel p = new GraphPanel(two);
             p.Title = title;
-            p.Accent = accent;
             return p;
+        }
+
+        private Control PanelFor(string key)
+        {
+            switch (key)
+            {
+                case Settings.SecClock: return _clock;
+                case Settings.SecCpu: return _cpu;
+                case Settings.SecGpu: return _gpu;
+                case Settings.SecMem: return _ram;
+                case Settings.SecDisk: return _disk;
+                case Settings.SecNet: return _net;
+                case Settings.SecNetTotals: return _netTotals;
+                case Settings.SecTopCpu: return _topCpu;
+                case Settings.SecTopRam: return _topRam;
+                case Settings.SecDrives: return _drives;
+                case Settings.SecIp: return _ip;
+                case Settings.SecFooter: return _footer;
+            }
+            return null;
         }
 
         // ---------- menus / tray ----------
@@ -128,11 +160,9 @@ namespace LoadView
         {
             if (_menu != null) return _menu;
             _menu = new ContextMenuStrip();
-
             _lockItem = new ToolStripMenuItem("Lock");
             _lockItem.Click += delegate { ToggleLock(); };
             _menu.Items.Add(_lockItem);
-
             _menu.Items.Add("Reset position", null, delegate { ResetPosition(); });
             _menu.Items.Add("Settings...", null, delegate { OpenSettings(); });
             _menu.Items.Add("About", null, delegate { OpenAbout(); });
@@ -225,11 +255,8 @@ namespace LoadView
 
         private void OpenSettings()
         {
-            // Apply/OK invoke ApplySettings live (so Apply can update without closing).
             using (SettingsForm f = new SettingsForm(_settings.Clone(), ApplySettings))
-            {
                 f.ShowDialog(this);
-            }
         }
 
         private void OpenAbout()
@@ -274,28 +301,48 @@ namespace LoadView
         {
             Opacity = ClampOpacity(_settings.Opacity);
             TopMost = _settings.AlwaysOnTop;
+            Log.Enabled = _settings.DebugLog;
+
+            int ms = _settings.RefreshMs;
+            if (ms < 200) ms = 200; else if (ms > 10000) ms = 10000;
+            if (_timer != null) _timer.Interval = ms;
 
             _clock.SizePt = _settings.ClockSize;
             _clock.Ink = _settings.ClockColor;
-            _clock.Visible = _settings.ShowClock;
 
             _footer.DateSizePt = _settings.DateSize;
             _footer.DaySizePt = _settings.DaySize;
+            _footer.DateBold = _settings.DateBold;
+            _footer.DayBold = _settings.DayBold;
             _footer.DateInk = _settings.DateColor;
             _footer.DayInk = _settings.DayColor;
-            _footer.Visible = _settings.ShowFooter;
 
-            _cpu.Visible = _settings.ShowCpu;
-            _gpu.Visible = _settings.ShowGpu;
-            _ram.Visible = _settings.ShowMem;
-            _disk.Visible = _settings.ShowDisk;
-            _net.Visible = _settings.ShowNet;
-            _drives.Visible = _settings.ShowDrives;
+            _drives.LabelSize = _settings.DriveLabelSize;
+            _drives.LabelBold = _settings.DriveLabelBold;
+
+            _cpu.Accent = _settings.CpuColor;  _cpu.FixedMax = _settings.CpuMax;  _cpu.AlertThreshold = _settings.CpuAlert;
+            _gpu.Accent = _settings.GpuColor;  _gpu.FixedMax = _settings.GpuMax;  _gpu.AlertThreshold = _settings.GpuAlert;
+            _ram.Accent = _settings.MemColor;  _ram.FixedMax = _settings.MemMax;  _ram.AlertThreshold = _settings.MemAlert;
+            _disk.Accent = _settings.DiskColor; _disk.FixedMax = _settings.DiskMax; _disk.AlertThreshold = _settings.DiskAlert;
+            _net.Accent = _settings.NetColor;  _net.FixedMax = _settings.NetMax;  _net.AlertThreshold = _settings.NetAlert;
+            _net.MinScale = _settings.NetUnitBytes ? 0.1 : 1.0;
+
+            if (_lastNetUnitBytes != _settings.NetUnitBytes)
+            {
+                _lastNetUnitBytes = _settings.NetUnitBytes;
+                _net.ClearHistory();
+            }
+
+            _ip.ShowWan = _settings.ExternalIpEnabled;
+            _sysinfo.ExternalIpEnabled = _settings.ExternalIpEnabled;
+
+            foreach (string key in Settings.AllSections)
+            {
+                Control c = PanelFor(key);
+                if (c != null) c.Visible = _settings.GetShow(key);
+            }
 
             if (_lockItem != null) _lockItem.Checked = _settings.Locked;
-
-            _clock.Invalidate();
-            _footer.Invalidate();
         }
 
         // ---------- sizing / layout ----------
@@ -312,27 +359,38 @@ namespace LoadView
             _drives.HeaderPx = (int)(18 * s);
             _drives.DriveRowPx = (int)(_settings.DriveRowHeight * s);
             int driveCount = _drives.Drives != null ? _drives.Drives.Length : 0;
-            int drivesH = _drives.ContentHeight(driveCount);
 
             int y = 0;
-            PlaceIf(_clock, _settings.ShowClock, w, ref y, _clock.PreferredHeight(), gap);
-            PlaceIf(_cpu, _settings.ShowCpu, w, ref y, graphH, gap);
-            PlaceIf(_gpu, _settings.ShowGpu, w, ref y, graphH, gap);
-            PlaceIf(_ram, _settings.ShowMem, w, ref y, graphH, gap);
-            PlaceIf(_disk, _settings.ShowDisk, w, ref y, graphH, gap);
-            PlaceIf(_net, _settings.ShowNet, w, ref y, graphH, gap);
-            PlaceIf(_drives, _settings.ShowDrives, w, ref y, drivesH, gap);
-            PlaceIf(_footer, _settings.ShowFooter, w, ref y, _footer.PreferredHeight(), gap);
-
-            int h = y > 0 ? y - gap : 1; // trim trailing gap
-            ClientSize = new Size(w, h);
+            foreach (string key in _settings.Order)
+            {
+                if (!_settings.GetShow(key)) continue;
+                Control c = PanelFor(key);
+                if (c == null) continue;
+                int h = HeightFor(key, graphH, driveCount);
+                c.SetBounds(0, y, w, h);
+                y += h + gap;
+            }
+            ClientSize = new Size(w, y > 0 ? y - gap : 1);
         }
 
-        private static void PlaceIf(Control c, bool visible, int w, ref int y, int h, int gap)
+        private int HeightFor(string key, int graphH, int driveCount)
         {
-            if (!visible) return;
-            c.SetBounds(0, y, w, h);
-            y += h + gap;
+            switch (key)
+            {
+                case Settings.SecClock: return _clock.PreferredHeight();
+                case Settings.SecCpu:
+                case Settings.SecGpu:
+                case Settings.SecMem:
+                case Settings.SecDisk:
+                case Settings.SecNet: return graphH;
+                case Settings.SecNetTotals: return _netTotals.PreferredHeight();
+                case Settings.SecTopCpu: return _topCpu.PreferredHeight();
+                case Settings.SecTopRam: return _topRam.PreferredHeight();
+                case Settings.SecDrives: return _drives.ContentHeight(driveCount);
+                case Settings.SecIp: return _ip.PreferredHeight();
+                case Settings.SecFooter: return _footer.PreferredHeight();
+            }
+            return graphH;
         }
 
         private Point DefaultLocation(Size sz)
@@ -358,52 +416,6 @@ namespace LoadView
             DeleteObject(rgn);
         }
 
-        // ---------- drives ----------
-
-        private void RefreshDrives(bool allowRelayout)
-        {
-            List<DriveLine> list = new List<DriveLine>();
-            try
-            {
-                foreach (DriveInfo di in DriveInfo.GetDrives())
-                {
-                    try
-                    {
-                        if (!di.IsReady) continue;
-                        if (di.DriveType != DriveType.Fixed && di.DriveType != DriveType.Removable) continue;
-                        double total = di.TotalSize / GiB;
-                        if (total <= 0) continue;
-                        double free = di.TotalFreeSpace / GiB;
-                        double used = total - free;
-
-                        DriveLine dl;
-                        dl.Label = di.Name.TrimEnd('\\');
-                        dl.UsedGB = used;
-                        dl.TotalGB = total;
-                        dl.Pct = total > 0 ? 100.0 * used / total : 0;
-                        list.Add(dl);
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-
-            DriveLine[] arr = list.ToArray();
-
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            foreach (DriveLine dl in arr) { sb.Append(dl.Label); sb.Append((int)dl.TotalGB); sb.Append(';'); }
-            string sig = sb.ToString();
-
-            _drives.Drives = arr;
-            _drives.Invalidate();
-
-            if (sig != _driveSig)
-            {
-                _driveSig = sig;
-                if (allowRelayout) DoLayout();
-            }
-        }
-
         // ---------- lifecycle ----------
 
         protected override void OnLoad(EventArgs e)
@@ -422,7 +434,7 @@ namespace LoadView
             ApplyRegion();
 
             _sampler.Warmup();
-            OnTick(null, null); // populate immediately
+            OnTick(null, null);
             _timer.Start();
             if (_settings.AlwaysOnTop) AssertTopmost();
         }
@@ -462,11 +474,33 @@ namespace LoadView
                 if (_timer != null) _timer.Dispose();
                 if (_tray != null) _tray.Dispose();
                 if (_sampler != null) _sampler.Dispose();
+                if (_procs != null) _procs.Dispose();
+                if (_sysinfo != null) _sysinfo.Dispose();
             }
             base.Dispose(disposing);
         }
 
-        // ---------- tick / formatting ----------
+        // ---------- drives ----------
+
+        private void RefreshDrives(bool allowRelayout)
+        {
+            DriveLine[] arr = _sysinfo.Drives();
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            foreach (DriveLine dl in arr) { sb.Append(dl.Label); sb.Append((int)dl.TotalGB); sb.Append(';'); }
+            string sig = sb.ToString();
+
+            _drives.Drives = arr;
+            _drives.Invalidate();
+
+            if (sig != _driveSig)
+            {
+                _driveSig = sig;
+                if (allowRelayout) DoLayout();
+            }
+        }
+
+        // ---------- tick ----------
 
         private void OnTick(object sender, EventArgs e)
         {
@@ -507,39 +541,71 @@ namespace LoadView
             _net.Available = s.NetValid;
             if (s.NetValid)
             {
-                _net.ValueText = "↓ " + Rate(s.NetDownBps) + "  ↑ " + Rate(s.NetUpBps);
-                _net.Add(s.NetDownBps * 8.0 / 1e6, s.NetUpBps * 8.0 / 1e6); // Mbps
+                double down = ToUnit(s.NetDownBps);
+                double up = ToUnit(s.NetUpBps);
+                _net.ValueText = "↓ " + RateText(s.NetDownBps) + "  ↑ " + RateText(s.NetUpBps);
+                _net.Add(down, up);
             }
             else { _net.ValueText = "n/a"; _net.Invalidate(); }
+
+            // session totals (data volume, always in bytes-based units)
+            double interval = _timer.Interval / 1000.0;
+            _totalDownBytes += s.NetDownBps * interval;
+            _totalUpBytes += s.NetUpBps * interval;
+            _netTotals.Line = "Total  ↓ " + Volume(_totalDownBytes) + "   ↑ " + Volume(_totalUpBytes);
+            _netTotals.Invalidate();
+
+            _topCpu.Rows = _procs.TopCpu(); _topCpu.Invalidate();
+            _topRam.Rows = _procs.TopRam(); _topRam.Invalidate();
+
+            _ip.Lan = _sysinfo.InternalIp();
+            _ip.Wan = _sysinfo.ExternalIp();
+            _ip.Invalidate();
+
+            RefreshDrives(true);
 
             _footer.DateText = now.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
             _footer.DayText = Capitalize(now.ToString("dddd", CultureInfo.CurrentCulture));
             _footer.Invalidate();
 
-            if (_driveTick % 5 == 0) RefreshDrives(true);
-            _driveTick++;
-
             AssertTopmost();
         }
 
-        private static string Pct(double v) { return string.Format(CultureInfo.InvariantCulture, "{0:0}%", v); }
+        // bytes/sec -> graph value in the selected unit (MB/s or Mbps)
+        private double ToUnit(double bytesPerSec)
+        {
+            return _settings.NetUnitBytes ? bytesPerSec / 1e6 : bytesPerSec * 8.0 / 1e6;
+        }
 
+        private string RateText(double bytesPerSec)
+        {
+            if (_settings.NetUnitBytes)
+            {
+                double b = bytesPerSec;
+                if (b >= 1e6) return string.Format(CultureInfo.InvariantCulture, "{0:0.0} MB/s", b / 1e6);
+                if (b >= 1e3) return string.Format(CultureInfo.InvariantCulture, "{0:0} kB/s", b / 1e3);
+                return string.Format(CultureInfo.InvariantCulture, "{0:0} B/s", b);
+            }
+            double bits = bytesPerSec * 8.0;
+            if (bits >= 1e6) return string.Format(CultureInfo.InvariantCulture, "{0:0.0} Mbps", bits / 1e6);
+            if (bits >= 1e3) return string.Format(CultureInfo.InvariantCulture, "{0:0} Kbps", bits / 1e3);
+            return string.Format(CultureInfo.InvariantCulture, "{0:0} bps", bits);
+        }
+
+        private static string Volume(double bytes)
+        {
+            if (bytes >= GiB) return string.Format(CultureInfo.InvariantCulture, "{0:0.00} GB", bytes / GiB);
+            if (bytes >= 1024.0 * 1024) return string.Format(CultureInfo.InvariantCulture, "{0:0.0} MB", bytes / (1024.0 * 1024));
+            return string.Format(CultureInfo.InvariantCulture, "{0:0} KB", bytes / 1024.0);
+        }
+
+        private static string Pct(double v) { return string.Format(CultureInfo.InvariantCulture, "{0:0}%", v); }
         private static string Temp(double c) { return string.Format(CultureInfo.InvariantCulture, "{0:0}°C", c); }
 
         private static string MBnum(double bytesPerSec)
         {
             double mb = bytesPerSec / 1e6;
-            return mb >= 100
-                ? mb.ToString("0", CultureInfo.InvariantCulture)
-                : mb.ToString("0.0", CultureInfo.InvariantCulture);
-        }
-
-        private static string Rate(double bytesPerSec)
-        {
-            double bits = bytesPerSec * 8.0;
-            if (bits >= 1e6) return string.Format(CultureInfo.InvariantCulture, "{0:0.0} Mbps", bits / 1e6);
-            if (bits >= 1e3) return string.Format(CultureInfo.InvariantCulture, "{0:0} Kbps", bits / 1e3);
-            return string.Format(CultureInfo.InvariantCulture, "{0:0} bps", bits);
+            return mb >= 100 ? mb.ToString("0", CultureInfo.InvariantCulture) : mb.ToString("0.0", CultureInfo.InvariantCulture);
         }
 
         private static string Capitalize(string s)

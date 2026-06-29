@@ -1,25 +1,38 @@
 using System;
-using System.Diagnostics;
 using System.Globalization;
 using System.Management;   // requires /r:System.Management.dll
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace LoadView
 {
     // Best-effort, dependency-free temperatures:
-    //   CPU  -> ACPI thermal zone via WMI (MSAcpi_ThermalZoneTemperature)
-    //   GPU  -> nvidia-smi, when an NVIDIA driver is installed
-    // Both run on a background thread (they can be slow / throw) and are cached, so the
-    // UI never stalls. Machines that don't expose temps simply report "no value".
+    //   CPU -> ACPI thermal zone via WMI (MSAcpi_ThermalZoneTemperature)
+    //   GPU -> NVIDIA NVML (nvml.dll), installed with the NVIDIA driver
+    // Runs on a background thread (queries can be slow / throw) and is cached, so the UI
+    // never stalls. Machines that don't expose temps simply report "no value".
     internal sealed class TempProvider : IDisposable
     {
+        // ---- NVML (nvml.dll ships with the NVIDIA driver; absent elsewhere) ----
+        [DllImport("nvml.dll", EntryPoint = "nvmlInit_v2")]
+        private static extern int NvmlInit();
+        [DllImport("nvml.dll", EntryPoint = "nvmlShutdown")]
+        private static extern int NvmlShutdown();
+        [DllImport("nvml.dll", EntryPoint = "nvmlDeviceGetHandleByIndex_v2")]
+        private static extern int NvmlGetHandle(uint index, out IntPtr device);
+        [DllImport("nvml.dll", EntryPoint = "nvmlDeviceGetTemperature")]
+        private static extern int NvmlGetTemp(IntPtr device, uint sensorType, out uint tempC);
+        private const uint NVML_TEMPERATURE_GPU = 0;
+
         private readonly object _lock = new object();
         private bool _cpuValid; private double _cpuC;
         private bool _gpuValid; private double _gpuC;
 
         private readonly Thread _thread;
         private volatile bool _stop;
-        private string _nvidiaPath;
+
+        private bool _nvmlTried;
+        private bool _nvmlReady;
 
         public TempProvider()
         {
@@ -34,18 +47,16 @@ namespace LoadView
 
         private void Loop()
         {
-            _nvidiaPath = FindNvidiaSmi();
             while (!_stop)
             {
                 double cpu; bool cpuOk = TryReadAcpiCpu(out cpu);
-                double gpu; bool gpuOk = TryReadNvidiaGpu(out gpu);
+                double gpu; bool gpuOk = TryReadNvmlGpu(out gpu);
                 lock (_lock)
                 {
                     _cpuValid = cpuOk; _cpuC = cpu;
                     _gpuValid = gpuOk; _gpuC = gpu;
                 }
-                // ~3s, but wake up promptly when asked to stop
-                for (int i = 0; i < 30 && !_stop; i++) Thread.Sleep(100);
+                for (int i = 0; i < 30 && !_stop; i++) Thread.Sleep(100); // ~3 s
             }
         }
 
@@ -73,58 +84,36 @@ namespace LoadView
             return false;
         }
 
-        private bool TryReadNvidiaGpu(out double celsius)
+        private bool TryReadNvmlGpu(out double celsius)
         {
             celsius = 0;
-            if (string.IsNullOrEmpty(_nvidiaPath)) return false;
+            if (!EnsureNvml()) return false;
             try
             {
-                ProcessStartInfo psi = new ProcessStartInfo(_nvidiaPath,
-                    "--query-gpu=temperature.gpu --format=csv,noheader,nounits");
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.CreateNoWindow = true;
-                using (Process p = Process.Start(psi))
-                {
-                    string outp = p.StandardOutput.ReadToEnd();
-                    if (!p.WaitForExit(2000)) { try { p.Kill(); } catch { } return false; }
-
-                    string first = (outp ?? "").Trim();
-                    int nl = first.IndexOf('\n');
-                    if (nl >= 0) first = first.Substring(0, nl).Trim();
-
-                    double c;
-                    if (double.TryParse(first, NumberStyles.Float, CultureInfo.InvariantCulture, out c) && c > 0 && c < 150)
-                    {
-                        celsius = c;
-                        return true;
-                    }
-                }
+                IntPtr dev;
+                if (NvmlGetHandle(0, out dev) != 0) return false;
+                uint t;
+                if (NvmlGetTemp(dev, NVML_TEMPERATURE_GPU, out t) != 0) return false;
+                if (t > 0 && t < 150) { celsius = t; return true; }
             }
-            catch { }
+            catch (Exception ex) { Log.Write("NVML temp", ex); }
             return false;
         }
 
-        private static string FindNvidiaSmi()
+        private bool EnsureNvml()
         {
-            try
-            {
-                string[] candidates = new string[]
-                {
-                    Environment.ExpandEnvironmentVariables(@"%SystemRoot%\System32\nvidia-smi.exe"),
-                    Environment.ExpandEnvironmentVariables(@"%ProgramFiles%\NVIDIA Corporation\NVSMI\nvidia-smi.exe")
-                };
-                foreach (string c in candidates)
-                    if (System.IO.File.Exists(c)) return c;
-            }
-            catch { }
-            return null;
+            if (_nvmlTried) return _nvmlReady;
+            _nvmlTried = true;
+            try { _nvmlReady = (NvmlInit() == 0); }
+            catch (Exception ex) { _nvmlReady = false; Log.Write("NVML init (no NVIDIA driver?)", ex); }
+            return _nvmlReady;
         }
 
         public void Dispose()
         {
             _stop = true;
             try { if (_thread != null) _thread.Join(700); } catch { }
+            if (_nvmlReady) { try { NvmlShutdown(); } catch { } }
         }
     }
 }

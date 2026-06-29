@@ -11,6 +11,26 @@ namespace LoadView
     // at layout); font sizes are in points; colors are hex RRGGBB.
     internal sealed class Settings
     {
+        // ---- section keys (also the canonical/default order) ----
+        public const string SecClock = "clock";
+        public const string SecCpu = "cpu";
+        public const string SecGpu = "gpu";
+        public const string SecMem = "mem";
+        public const string SecDisk = "disk";
+        public const string SecNet = "net";
+        public const string SecNetTotals = "nettotals";
+        public const string SecTopCpu = "topcpu";
+        public const string SecTopRam = "topram";
+        public const string SecDrives = "drives";
+        public const string SecIp = "ip";
+        public const string SecFooter = "footer";
+
+        public static readonly string[] AllSections = new string[]
+        {
+            SecClock, SecCpu, SecGpu, SecMem, SecDisk, SecNet,
+            SecNetTotals, SecTopCpu, SecTopRam, SecDrives, SecIp, SecFooter
+        };
+
         // window / position
         public bool HasPosition;
         public int X;
@@ -21,19 +41,43 @@ namespace LoadView
         public int Width = 300;
         public int GraphHeight = 58;
         public int DriveRowHeight = 30;
+        public List<string> Order = new List<string>(AllSections);
 
         // clock / date / weekday
         public bool ShowSeconds = true;
         public float ClockSize = 20f;
         public float DateSize = 13f;
         public float DaySize = 10f;
+        public bool DateBold = true;
+        public bool DayBold = false;
         public Color ClockColor = Color.FromArgb(232, 232, 237);
         public Color DateColor = Color.FromArgb(232, 232, 237);
         public Color DayColor = Color.FromArgb(150, 150, 158);
 
+        // drives
+        public float DriveLabelSize = 9f;
+        public bool DriveLabelBold = false;
+
+        // network
+        public bool NetUnitBytes = true;       // true: MB/s & kB/s ; false: Mbps & Kbps
+        public bool ExternalIpEnabled = true;
+
+        // per-graph accent colors
+        public Color CpuColor = Color.FromArgb(0x4F, 0x8C, 0xFF);
+        public Color GpuColor = Color.FromArgb(0x36, 0xC7, 0x9B);
+        public Color MemColor = Color.FromArgb(0xB0, 0x7C, 0xFF);
+        public Color DiskColor = Color.FromArgb(0x6F, 0xD0, 0x57);
+        public Color NetColor = Color.FromArgb(0xFF, 0x9F, 0x40);
+
+        // per-graph ceiling (0 = auto / 100 for % graphs) and red-alert threshold (0 = off)
+        public double CpuMax = 100, GpuMax = 100, MemMax = 100, DiskMax = 100, NetMax = 0;
+        public double CpuAlert = 90, GpuAlert = 90, MemAlert = 90, DiskAlert = 90, NetAlert = 0;
+
         // behavior
         public bool AlwaysOnTop = true;
         public bool Locked;
+        public int RefreshMs = 1000;
+        public bool DebugLog = false;
 
         // section visibility
         public bool ShowClock = true;
@@ -42,12 +86,77 @@ namespace LoadView
         public bool ShowMem = true;
         public bool ShowDisk = true;
         public bool ShowNet = true;
+        public bool ShowNetTotals = true;
+        public bool ShowTopCpu = true;
+        public bool ShowTopRam = true;
         public bool ShowDrives = true;
+        public bool ShowIp = true;
         public bool ShowFooter = true;
 
         public Settings Clone()
         {
-            return (Settings)MemberwiseClone();
+            Settings s = (Settings)MemberwiseClone();
+            s.Order = new List<string>(Order); // deep-copy the mutable list
+            return s;
+        }
+
+        public bool GetShow(string key)
+        {
+            switch (key)
+            {
+                case SecClock: return ShowClock;
+                case SecCpu: return ShowCpu;
+                case SecGpu: return ShowGpu;
+                case SecMem: return ShowMem;
+                case SecDisk: return ShowDisk;
+                case SecNet: return ShowNet;
+                case SecNetTotals: return ShowNetTotals;
+                case SecTopCpu: return ShowTopCpu;
+                case SecTopRam: return ShowTopRam;
+                case SecDrives: return ShowDrives;
+                case SecIp: return ShowIp;
+                case SecFooter: return ShowFooter;
+            }
+            return false;
+        }
+
+        public void SetShow(string key, bool v)
+        {
+            switch (key)
+            {
+                case SecClock: ShowClock = v; break;
+                case SecCpu: ShowCpu = v; break;
+                case SecGpu: ShowGpu = v; break;
+                case SecMem: ShowMem = v; break;
+                case SecDisk: ShowDisk = v; break;
+                case SecNet: ShowNet = v; break;
+                case SecNetTotals: ShowNetTotals = v; break;
+                case SecTopCpu: ShowTopCpu = v; break;
+                case SecTopRam: ShowTopRam = v; break;
+                case SecDrives: ShowDrives = v; break;
+                case SecIp: ShowIp = v; break;
+                case SecFooter: ShowFooter = v; break;
+            }
+        }
+
+        public static string DisplayName(string key)
+        {
+            switch (key)
+            {
+                case SecClock: return "Clock";
+                case SecCpu: return "CPU graph";
+                case SecGpu: return "GPU graph";
+                case SecMem: return "MEM graph";
+                case SecDisk: return "DISK graph";
+                case SecNet: return "NET graph";
+                case SecNetTotals: return "Net totals";
+                case SecTopCpu: return "Top CPU";
+                case SecTopRam: return "Top RAM";
+                case SecDrives: return "Drives";
+                case SecIp: return "IP addresses";
+                case SecFooter: return "Date / weekday";
+            }
+            return key;
         }
 
         private static string FilePath()
@@ -86,26 +195,49 @@ namespace LoadView
             s.Width = GetInt(kv, "width", s.Width);
             s.GraphHeight = GetInt(kv, "graphheight", s.GraphHeight);
             s.DriveRowHeight = GetInt(kv, "driverowheight", s.DriveRowHeight);
+            s.Order = NormalizeOrder(GetString(kv, "order", null));
 
             s.ShowSeconds = GetBool(kv, "showseconds", s.ShowSeconds);
             s.ClockSize = GetFloat(kv, "clocksize", s.ClockSize);
             s.DateSize = GetFloat(kv, "datesize", s.DateSize);
             s.DaySize = GetFloat(kv, "daysize", s.DaySize);
+            s.DateBold = GetBool(kv, "datebold", s.DateBold);
+            s.DayBold = GetBool(kv, "daybold", s.DayBold);
             s.ClockColor = GetColor(kv, "clockcolor", s.ClockColor);
             s.DateColor = GetColor(kv, "datecolor", s.DateColor);
             s.DayColor = GetColor(kv, "daycolor", s.DayColor);
 
+            s.DriveLabelSize = GetFloat(kv, "drivelabelsize", s.DriveLabelSize);
+            s.DriveLabelBold = GetBool(kv, "drivelabelbold", s.DriveLabelBold);
+
+            s.NetUnitBytes = GetBool(kv, "netunitbytes", s.NetUnitBytes);
+            s.ExternalIpEnabled = GetBool(kv, "externalip", s.ExternalIpEnabled);
+
+            s.CpuColor = GetColor(kv, "cpucolor", s.CpuColor);
+            s.GpuColor = GetColor(kv, "gpucolor", s.GpuColor);
+            s.MemColor = GetColor(kv, "memcolor", s.MemColor);
+            s.DiskColor = GetColor(kv, "diskcolor", s.DiskColor);
+            s.NetColor = GetColor(kv, "netcolor", s.NetColor);
+
+            s.CpuMax = GetDouble(kv, "cpumax", s.CpuMax);
+            s.GpuMax = GetDouble(kv, "gpumax", s.GpuMax);
+            s.MemMax = GetDouble(kv, "memmax", s.MemMax);
+            s.DiskMax = GetDouble(kv, "diskmax", s.DiskMax);
+            s.NetMax = GetDouble(kv, "netmax", s.NetMax);
+
+            s.CpuAlert = GetDouble(kv, "cpualert", s.CpuAlert);
+            s.GpuAlert = GetDouble(kv, "gpualert", s.GpuAlert);
+            s.MemAlert = GetDouble(kv, "memalert", s.MemAlert);
+            s.DiskAlert = GetDouble(kv, "diskalert", s.DiskAlert);
+            s.NetAlert = GetDouble(kv, "netalert", s.NetAlert);
+
             s.AlwaysOnTop = GetBool(kv, "alwaysontop", s.AlwaysOnTop);
             s.Locked = GetBool(kv, "locked", s.Locked);
+            s.RefreshMs = GetInt(kv, "refreshms", s.RefreshMs);
+            s.DebugLog = GetBool(kv, "debuglog", s.DebugLog);
 
-            s.ShowClock = GetBool(kv, "showclock", s.ShowClock);
-            s.ShowCpu = GetBool(kv, "showcpu", s.ShowCpu);
-            s.ShowGpu = GetBool(kv, "showgpu", s.ShowGpu);
-            s.ShowMem = GetBool(kv, "showmem", s.ShowMem);
-            s.ShowDisk = GetBool(kv, "showdisk", s.ShowDisk);
-            s.ShowNet = GetBool(kv, "shownet", s.ShowNet);
-            s.ShowDrives = GetBool(kv, "showdrives", s.ShowDrives);
-            s.ShowFooter = GetBool(kv, "showfooter", s.ShowFooter);
+            foreach (string key in AllSections)
+                s.SetShow(key, GetBool(kv, "show_" + key, s.GetShow(key)));
 
             return s;
         }
@@ -125,30 +257,86 @@ namespace LoadView
                 l.Add("width=" + Width.ToString(CultureInfo.InvariantCulture));
                 l.Add("graphheight=" + GraphHeight.ToString(CultureInfo.InvariantCulture));
                 l.Add("driverowheight=" + DriveRowHeight.ToString(CultureInfo.InvariantCulture));
-                l.Add("showseconds=" + (ShowSeconds ? "true" : "false"));
-                l.Add("clocksize=" + ClockSize.ToString("0.#", CultureInfo.InvariantCulture));
-                l.Add("datesize=" + DateSize.ToString("0.#", CultureInfo.InvariantCulture));
-                l.Add("daysize=" + DaySize.ToString("0.#", CultureInfo.InvariantCulture));
+                l.Add("order=" + string.Join(",", Order.ToArray()));
+
+                l.Add("showseconds=" + B(ShowSeconds));
+                l.Add("clocksize=" + F(ClockSize));
+                l.Add("datesize=" + F(DateSize));
+                l.Add("daysize=" + F(DaySize));
+                l.Add("datebold=" + B(DateBold));
+                l.Add("daybold=" + B(DayBold));
                 l.Add("clockcolor=" + Hex(ClockColor));
                 l.Add("datecolor=" + Hex(DateColor));
                 l.Add("daycolor=" + Hex(DayColor));
-                l.Add("alwaysontop=" + (AlwaysOnTop ? "true" : "false"));
-                l.Add("locked=" + (Locked ? "true" : "false"));
-                l.Add("showclock=" + (ShowClock ? "true" : "false"));
-                l.Add("showcpu=" + (ShowCpu ? "true" : "false"));
-                l.Add("showgpu=" + (ShowGpu ? "true" : "false"));
-                l.Add("showmem=" + (ShowMem ? "true" : "false"));
-                l.Add("showdisk=" + (ShowDisk ? "true" : "false"));
-                l.Add("shownet=" + (ShowNet ? "true" : "false"));
-                l.Add("showdrives=" + (ShowDrives ? "true" : "false"));
-                l.Add("showfooter=" + (ShowFooter ? "true" : "false"));
+
+                l.Add("drivelabelsize=" + F(DriveLabelSize));
+                l.Add("drivelabelbold=" + B(DriveLabelBold));
+
+                l.Add("netunitbytes=" + B(NetUnitBytes));
+                l.Add("externalip=" + B(ExternalIpEnabled));
+
+                l.Add("cpucolor=" + Hex(CpuColor));
+                l.Add("gpucolor=" + Hex(GpuColor));
+                l.Add("memcolor=" + Hex(MemColor));
+                l.Add("diskcolor=" + Hex(DiskColor));
+                l.Add("netcolor=" + Hex(NetColor));
+
+                l.Add("cpumax=" + D(CpuMax));
+                l.Add("gpumax=" + D(GpuMax));
+                l.Add("memmax=" + D(MemMax));
+                l.Add("diskmax=" + D(DiskMax));
+                l.Add("netmax=" + D(NetMax));
+
+                l.Add("cpualert=" + D(CpuAlert));
+                l.Add("gpualert=" + D(GpuAlert));
+                l.Add("memalert=" + D(MemAlert));
+                l.Add("diskalert=" + D(DiskAlert));
+                l.Add("netalert=" + D(NetAlert));
+
+                l.Add("alwaysontop=" + B(AlwaysOnTop));
+                l.Add("locked=" + B(Locked));
+                l.Add("refreshms=" + RefreshMs.ToString(CultureInfo.InvariantCulture));
+                l.Add("debuglog=" + B(DebugLog));
+
+                foreach (string key in AllSections)
+                    l.Add("show_" + key + "=" + B(GetShow(key)));
 
                 File.WriteAllLines(path, l.ToArray());
             }
             catch { /* ignore */ }
         }
 
+        // Keep only known keys (in saved order), then append any known keys that are missing
+        // (forward-compatibility when new sections are added).
+        private static List<string> NormalizeOrder(string raw)
+        {
+            List<string> result = new List<string>();
+            if (!string.IsNullOrEmpty(raw))
+            {
+                foreach (string part in raw.Split(','))
+                {
+                    string k = part.Trim().ToLowerInvariant();
+                    if (Array.IndexOf(AllSections, k) >= 0 && !result.Contains(k))
+                        result.Add(k);
+                }
+            }
+            foreach (string k in AllSections)
+                if (!result.Contains(k)) result.Add(k);
+            return result;
+        }
+
+        // ---- formatting helpers ----
+        private static string B(bool v) { return v ? "true" : "false"; }
+        private static string F(float v) { return v.ToString("0.#", CultureInfo.InvariantCulture); }
+        private static string D(double v) { return v.ToString("0.###", CultureInfo.InvariantCulture); }
+        private static string Hex(Color c) { return string.Format(CultureInfo.InvariantCulture, "{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B); }
+
         // ---- parse helpers ----
+        private static string GetString(Dictionary<string, string> kv, string key, string def)
+        {
+            string v;
+            return kv.TryGetValue(key, out v) ? v : def;
+        }
 
         private static int GetInt(Dictionary<string, string> kv, string key, int def)
         {
@@ -158,8 +346,7 @@ namespace LoadView
 
         private static int GetInt(Dictionary<string, string> kv, string key, int def, ref bool found)
         {
-            string v;
-            int r;
+            string v; int r;
             if (kv.TryGetValue(key, out v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out r))
             {
                 found = true;
@@ -170,8 +357,7 @@ namespace LoadView
 
         private static double GetDouble(Dictionary<string, string> kv, string key, double def)
         {
-            string v;
-            double r;
+            string v; double r;
             if (kv.TryGetValue(key, out v) && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out r))
                 return r;
             return def;
@@ -179,8 +365,7 @@ namespace LoadView
 
         private static float GetFloat(Dictionary<string, string> kv, string key, float def)
         {
-            string v;
-            float r;
+            string v; float r;
             if (kv.TryGetValue(key, out v) && float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out r))
                 return r;
             return def;
@@ -205,11 +390,6 @@ namespace LoadView
             if (v.Length == 6 && int.TryParse(v, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out rgb))
                 return Color.FromArgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
             return def;
-        }
-
-        private static string Hex(Color c)
-        {
-            return string.Format(CultureInfo.InvariantCulture, "{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B);
         }
     }
 }

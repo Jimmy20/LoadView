@@ -55,6 +55,12 @@ namespace LoadView
 
         private IntPtr _query;
 
+        // Reused across ticks to avoid per-call allocations (GPU/network are read every second).
+        private IntPtr _arrBuf = IntPtr.Zero;
+        private int _arrBufSize;
+        private int _itemSize = -1;
+        private readonly List<NamedValue> _arrList = new List<NamedValue>();
+
         public PdhQuery()
         {
             if (PdhOpenQuery(null, IntPtr.Zero, out _query) != ERROR_SUCCESS)
@@ -90,41 +96,40 @@ namespace LoadView
             return d;
         }
 
+        // NOTE: returns a reused list backed by a reused buffer to keep GC pressure low.
+        // The caller must consume the result before the next ReadArray call (the metrics
+        // sampler reads each wildcard counter and aggregates it immediately).
         public List<NamedValue> ReadArray(IntPtr counter)
         {
-            List<NamedValue> list = new List<NamedValue>();
-            if (counter == IntPtr.Zero) return list;
+            _arrList.Clear();
+            if (counter == IntPtr.Zero) return _arrList;
+            if (_itemSize < 0) _itemSize = Marshal.SizeOf(typeof(PDH_FMT_COUNTERVALUE_ITEM));
 
-            uint size = 0;
-            uint count = 0;
-            if (PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE, ref size, out count, IntPtr.Zero) != PDH_MORE_DATA || size == 0)
-                return list;
-
-            IntPtr buffer = Marshal.AllocHGlobal((int)size);
-            try
+            uint size = (uint)_arrBufSize;
+            uint count;
+            uint r = PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE, ref size, out count, _arrBuf);
+            if (r == PDH_MORE_DATA)
             {
-                if (PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE, ref size, out count, buffer) != ERROR_SUCCESS)
-                    return list;
-
-                int itemSize = Marshal.SizeOf(typeof(PDH_FMT_COUNTERVALUE_ITEM));
-                for (int i = 0; i < count; i++)
-                {
-                    IntPtr p = new IntPtr(buffer.ToInt64() + (long)i * itemSize);
-                    PDH_FMT_COUNTERVALUE_ITEM item = (PDH_FMT_COUNTERVALUE_ITEM)Marshal.PtrToStructure(p, typeof(PDH_FMT_COUNTERVALUE_ITEM));
-                    double d = item.FmtValue.doubleValue;
-                    if (double.IsNaN(d) || double.IsInfinity(d)) d = 0;
-
-                    NamedValue nv;
-                    nv.Name = item.szName == null ? "" : item.szName;
-                    nv.Value = d;
-                    list.Add(nv);
-                }
+                if (_arrBuf != IntPtr.Zero) Marshal.FreeHGlobal(_arrBuf);
+                _arrBuf = Marshal.AllocHGlobal((int)size);
+                _arrBufSize = (int)size;
+                r = PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE, ref size, out count, _arrBuf);
             }
-            finally
+            if (r != ERROR_SUCCESS) return _arrList;
+
+            for (int i = 0; i < count; i++)
             {
-                Marshal.FreeHGlobal(buffer);
+                IntPtr p = new IntPtr(_arrBuf.ToInt64() + (long)i * _itemSize);
+                PDH_FMT_COUNTERVALUE_ITEM item = (PDH_FMT_COUNTERVALUE_ITEM)Marshal.PtrToStructure(p, typeof(PDH_FMT_COUNTERVALUE_ITEM));
+                double d = item.FmtValue.doubleValue;
+                if (double.IsNaN(d) || double.IsInfinity(d)) d = 0;
+
+                NamedValue nv;
+                nv.Name = item.szName == null ? "" : item.szName;
+                nv.Value = d;
+                _arrList.Add(nv);
             }
-            return list;
+            return _arrList;
         }
 
         public void Dispose()
