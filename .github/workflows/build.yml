@@ -14,6 +14,10 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # Map secrets to env here — the `secrets` context can't be used in a step `if:`.
+    env:
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +29,8 @@ jobs:
       # Optional code signing: only runs if you add the SIGN_PFX_BASE64 repo secret
       # (and SIGN_PFX_PASSWORD). Without it, the build is unsigned and this step is skipped.
       - name: Sign (optional)
-        if: ${{ secrets.SIGN_PFX_BASE64 != '' }}
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
         shell: pwsh
-        env:
-          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
-          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
         run: |
           $pfx = Join-Path $env:RUNNER_TEMP cert.pfx
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
