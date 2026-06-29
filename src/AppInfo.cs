@@ -4,11 +4,20 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.1.0";
+        public const string Version = "2.3.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.3.0",
+            "  - Separate download/upload colors (default green/red) for net graph + totals",
+            "  - Net totals text size; centered LAN/WAN; section titles a uniform size",
+            "  - Tidier drive label/bar spacing",
+            "",
+            "2.2.0",
+            "  - Adjustable text size for Top CPU / Top RAM and IP sections",
+            "  - Save current settings as defaults; Reset to defaults",
+            "",
             "2.1.0",
             "  - Single instance (won't launch twice)",
             "  - Start with Windows toggle; configurable refresh interval",

@@ -104,7 +104,6 @@ namespace LoadView
             _ram  = NewGraph("MEM",  false);
             _disk = NewGraph("DISK", false);
             _net  = NewGraph("NET",  true);
-            _net.Accent2 = Color.FromArgb(0x55, 0xD6, 0xFF);
             _net.Percent = false;
 
             _netTotals = new NetTotalsPanel();
@@ -320,12 +319,21 @@ namespace LoadView
             _drives.LabelSize = _settings.DriveLabelSize;
             _drives.LabelBold = _settings.DriveLabelBold;
 
+            _topCpu.TextSize = _settings.ListSize;
+            _topRam.TextSize = _settings.ListSize;
+            _ip.TextSize = _settings.IpSize;
+
             _cpu.Accent = _settings.CpuColor;  _cpu.FixedMax = _settings.CpuMax;  _cpu.AlertThreshold = _settings.CpuAlert;
             _gpu.Accent = _settings.GpuColor;  _gpu.FixedMax = _settings.GpuMax;  _gpu.AlertThreshold = _settings.GpuAlert;
             _ram.Accent = _settings.MemColor;  _ram.FixedMax = _settings.MemMax;  _ram.AlertThreshold = _settings.MemAlert;
             _disk.Accent = _settings.DiskColor; _disk.FixedMax = _settings.DiskMax; _disk.AlertThreshold = _settings.DiskAlert;
-            _net.Accent = _settings.NetColor;  _net.FixedMax = _settings.NetMax;  _net.AlertThreshold = _settings.NetAlert;
+            _net.Accent = _settings.NetDownColor; _net.Accent2 = _settings.NetUpColor;
+            _net.FixedMax = _settings.NetMax;  _net.AlertThreshold = _settings.NetAlert;
             _net.MinScale = _settings.NetUnitBytes ? 0.1 : 1.0;
+
+            _netTotals.TextSize = _settings.NetTotalsSize;
+            _netTotals.DownColor = _settings.NetDownColor;
+            _netTotals.UpColor = _settings.NetUpColor;
 
             if (_lastNetUnitBytes != _settings.NetUnitBytes)
             {
@@ -552,7 +560,8 @@ namespace LoadView
             double interval = _timer.Interval / 1000.0;
             _totalDownBytes += s.NetDownBps * interval;
             _totalUpBytes += s.NetUpBps * interval;
-            _netTotals.Line = "Total  ↓ " + Volume(_totalDownBytes) + "   ↑ " + Volume(_totalUpBytes);
+            _netTotals.DownText = "↓ " + Volume(_totalDownBytes);
+            _netTotals.UpText = "↑ " + Volume(_totalUpBytes);
             _netTotals.Invalidate();
 
             _topCpu.Rows = _procs.TopCpu(); _topCpu.Invalidate();

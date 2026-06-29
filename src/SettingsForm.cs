@@ -14,7 +14,7 @@ namespace LoadView
         private static readonly Color Accent = Color.FromArgb(0x6F, 0xA8, 0xFF);
         private static readonly Color FieldBg = Color.FromArgb(46, 46, 52);
 
-        private readonly Settings _working;
+        private Settings _working;
         private readonly Action<Settings> _apply;
 
         private Panel _content;
@@ -26,9 +26,9 @@ namespace LoadView
         private const int ContentW = 470;
 
         // controls
-        private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize, _driveLblSize;
+        private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize, _driveLblSize, _listSize, _ipSize, _netTotalsSize;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog;
-        private Button _clockColor, _dateColor, _dayColor;
+        private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
         private Label _opacityVal;
@@ -87,6 +87,11 @@ namespace LoadView
             Section("Graphs  (color · max 0=auto · alert%, 0=off)");
             BuildGraphRows();
 
+            Section("Network");
+            _netTotalsSize = AddNum("Net totals text size (pt)", 7, 28, (int)_working.NetTotalsSize);
+            _netDownColor = AddColor("Download color", _working.NetDownColor);
+            _netUpColor = AddColor("Upload color", _working.NetUpColor);
+
             Section("Clock / date");
             _seconds = AddCheckFull("Show seconds", _working.ShowSeconds);
             _clockSize = AddNum("Clock size (pt)", 8, 72, (int)_working.ClockSize);
@@ -101,6 +106,10 @@ namespace LoadView
             Section("Drives");
             _driveLblSize = AddNum("Drive label size (pt)", 7, 24, (int)_working.DriveLabelSize);
             _driveLblBold = AddCheckFull("Drive label bold", _working.DriveLabelBold);
+
+            Section("Process lists / IP");
+            _listSize = AddNum("Top CPU/RAM text size (pt)", 7, 28, (int)_working.ListSize);
+            _ipSize = AddNum("IP text size (pt)", 7, 28, (int)_working.IpSize);
 
             Section("Behavior");
             AddLabel("Opacity", LabelX, _y + 3, 150);
@@ -122,7 +131,43 @@ namespace LoadView
             _top = AddCheckFull("Always on top (uncheck = normal window)", _working.AlwaysOnTop);
             _lock = AddCheckFull("Lock position (no dragging)", _working.Locked);
 
-            _y += 10;
+            Section("Defaults");
+            Button saveDef = new Button();
+            saveDef.Text = "Save current as defaults";
+            saveDef.SetBounds(LabelX, _y, 200, RowH + 2);
+            StyleButton(saveDef);
+            saveDef.Click += delegate { SaveAsDefaults(); };
+            _content.Controls.Add(saveDef);
+
+            Button resetDef = new Button();
+            resetDef.Text = "Reset to defaults";
+            resetDef.SetBounds(LabelX + 210, _y, 160, RowH + 2);
+            StyleButton(resetDef);
+            resetDef.Click += delegate { ResetToDefaults(); };
+            _content.Controls.Add(resetDef);
+            _y += RowH + 14;
+        }
+
+        private void SaveAsDefaults()
+        {
+            CommitToWorking();
+            _working.SaveAsDefaults();
+            if (_apply != null) _apply(_working.Clone()); // also persist as current settings
+            MessageBox.Show(this, "Saved the current settings as the defaults.", "LoadView",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ResetToDefaults()
+        {
+            // Defer the rebuild so we don't dispose controls while handling their own click.
+            BeginInvoke(new MethodInvoker(delegate
+            {
+                _working = Settings.LoadDefaults();
+                _content.Controls.Clear();
+                _y = 14;
+                BuildContent();
+                if (_apply != null) _apply(_working.Clone());
+            }));
         }
 
         private void BuildReorder()
@@ -173,7 +218,7 @@ namespace LoadView
             _y += 20;
 
             string[] names = new string[] { "CPU", "GPU", "MEM", "DISK", "NET" };
-            Color[] colors = new Color[] { _working.CpuColor, _working.GpuColor, _working.MemColor, _working.DiskColor, _working.NetColor };
+            Color[] colors = new Color[] { _working.CpuColor, _working.GpuColor, _working.MemColor, _working.DiskColor, Color.Empty };
             double[] maxes = new double[] { _working.CpuMax, _working.GpuMax, _working.MemMax, _working.DiskMax, _working.NetMax };
             double[] alerts = new double[] { _working.CpuAlert, _working.GpuAlert, _working.MemAlert, _working.DiskAlert, _working.NetAlert };
 
@@ -181,14 +226,21 @@ namespace LoadView
             {
                 AddLabel(names[i], LabelX, _y + 4, 60);
 
-                Button c = new Button();
-                c.SetBounds(100, _y, 110, RowH);
-                c.BackColor = colors[i];
-                c.FlatStyle = FlatStyle.Flat;
-                c.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
-                c.Click += delegate { PickColor(c); };
-                _content.Controls.Add(c);
-                _gColor[i] = c;
+                if (i < 4)   // NET colors live in the Network section (separate down/up)
+                {
+                    Button c = new Button();
+                    c.SetBounds(100, _y, 110, RowH);
+                    c.BackColor = colors[i];
+                    c.FlatStyle = FlatStyle.Flat;
+                    c.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+                    c.Click += delegate { PickColor(c); };
+                    _content.Controls.Add(c);
+                    _gColor[i] = c;
+                }
+                else
+                {
+                    AddLabel("(colors in Network)", 100, _y + 4, 130).ForeColor = Color.FromArgb(150, 150, 158);
+                }
 
                 _gMax[i] = MakeNum(230, 0, 100000, maxes[i]);
                 _gAlert[i] = MakeNum(320, 0, 100000, alerts[i]);
@@ -254,7 +306,10 @@ namespace LoadView
             _working.GpuColor = _gColor[1].BackColor; _working.GpuMax = (double)_gMax[1].Value; _working.GpuAlert = (double)_gAlert[1].Value;
             _working.MemColor = _gColor[2].BackColor; _working.MemMax = (double)_gMax[2].Value; _working.MemAlert = (double)_gAlert[2].Value;
             _working.DiskColor = _gColor[3].BackColor; _working.DiskMax = (double)_gMax[3].Value; _working.DiskAlert = (double)_gAlert[3].Value;
-            _working.NetColor = _gColor[4].BackColor; _working.NetMax = (double)_gMax[4].Value; _working.NetAlert = (double)_gAlert[4].Value;
+            _working.NetMax = (double)_gMax[4].Value; _working.NetAlert = (double)_gAlert[4].Value;
+            _working.NetDownColor = _netDownColor.BackColor;
+            _working.NetUpColor = _netUpColor.BackColor;
+            _working.NetTotalsSize = (float)_netTotalsSize.Value;
 
             _working.ShowSeconds = _seconds.Checked;
             _working.ClockSize = (float)_clockSize.Value;
@@ -268,6 +323,8 @@ namespace LoadView
 
             _working.DriveLabelSize = (float)_driveLblSize.Value;
             _working.DriveLabelBold = _driveLblBold.Checked;
+            _working.ListSize = (float)_listSize.Value;
+            _working.IpSize = (float)_ipSize.Value;
 
             _working.Opacity = _opacity.Value / 100.0;
             _working.ExternalIpEnabled = _extIp.Checked;
