@@ -58,6 +58,11 @@ namespace LoadView
         public float DriveLabelSize = 9f;
         public bool DriveLabelBold = false;
 
+        // process lists / IP / net-totals text size
+        public float ListSize = 9f;
+        public float IpSize = 9f;
+        public float NetTotalsSize = 9f;
+
         // network
         public bool NetUnitBytes = true;       // true: MB/s & kB/s ; false: Mbps & Kbps
         public bool ExternalIpEnabled = true;
@@ -67,7 +72,8 @@ namespace LoadView
         public Color GpuColor = Color.FromArgb(0x36, 0xC7, 0x9B);
         public Color MemColor = Color.FromArgb(0xB0, 0x7C, 0xFF);
         public Color DiskColor = Color.FromArgb(0x6F, 0xD0, 0x57);
-        public Color NetColor = Color.FromArgb(0xFF, 0x9F, 0x40);
+        public Color NetDownColor = Color.FromArgb(0x57, 0xD0, 0x6F); // download = green
+        public Color NetUpColor = Color.FromArgb(0xE0, 0x5A, 0x5A);   // upload = red
 
         // per-graph ceiling (0 = auto / 100 for % graphs) and red-alert threshold (0 = off)
         public double CpuMax = 100, GpuMax = 100, MemMax = 100, DiskMax = 100, NetMax = 0;
@@ -159,22 +165,35 @@ namespace LoadView
             return key;
         }
 
-        private static string FilePath()
+        private static string Dir()
         {
-            string dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "LoadView");
-            return Path.Combine(dir, "settings.ini");
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadView");
         }
 
+        private static string FilePath() { return Path.Combine(Dir(), "settings.ini"); }
+        private static string DefaultsPath() { return Path.Combine(Dir(), "defaults.ini"); }
+
+        // Active settings -> defaults.ini fallback (lets you carry a preferred config across
+        // machines and "reset to defaults" return to it) -> built-in defaults.
         public static Settings Load()
+        {
+            string p = FilePath();
+            return File.Exists(p) ? LoadFrom(p) : LoadDefaults();
+        }
+
+        public static Settings LoadDefaults()
+        {
+            string p = DefaultsPath();
+            return File.Exists(p) ? LoadFrom(p) : new Settings();
+        }
+
+        private static Settings LoadFrom(string path)
         {
             Settings s = new Settings();
             Dictionary<string, string> kv = new Dictionary<string, string>();
             try
             {
-                string path = FilePath();
-                if (!File.Exists(path)) return s;
                 foreach (string line in File.ReadAllLines(path))
                 {
                     int eq = line.IndexOf('=');
@@ -209,6 +228,9 @@ namespace LoadView
 
             s.DriveLabelSize = GetFloat(kv, "drivelabelsize", s.DriveLabelSize);
             s.DriveLabelBold = GetBool(kv, "drivelabelbold", s.DriveLabelBold);
+            s.ListSize = GetFloat(kv, "listsize", s.ListSize);
+            s.IpSize = GetFloat(kv, "ipsize", s.IpSize);
+            s.NetTotalsSize = GetFloat(kv, "nettotalssize", s.NetTotalsSize);
 
             s.NetUnitBytes = GetBool(kv, "netunitbytes", s.NetUnitBytes);
             s.ExternalIpEnabled = GetBool(kv, "externalip", s.ExternalIpEnabled);
@@ -217,7 +239,8 @@ namespace LoadView
             s.GpuColor = GetColor(kv, "gpucolor", s.GpuColor);
             s.MemColor = GetColor(kv, "memcolor", s.MemColor);
             s.DiskColor = GetColor(kv, "diskcolor", s.DiskColor);
-            s.NetColor = GetColor(kv, "netcolor", s.NetColor);
+            s.NetDownColor = GetColor(kv, "netdowncolor", s.NetDownColor);
+            s.NetUpColor = GetColor(kv, "netupcolor", s.NetUpColor);
 
             s.CpuMax = GetDouble(kv, "cpumax", s.CpuMax);
             s.GpuMax = GetDouble(kv, "gpumax", s.GpuMax);
@@ -242,17 +265,25 @@ namespace LoadView
             return s;
         }
 
-        public void Save()
+        public void Save() { SaveTo(FilePath(), true); }
+
+        // Persist the current settings as the fallback defaults (position is not saved here,
+        // so the default lands top-right on whatever machine loads it).
+        public void SaveAsDefaults() { SaveTo(DefaultsPath(), false); }
+
+        private void SaveTo(string path, bool includePosition)
         {
             try
             {
-                string path = FilePath();
                 string dir = Path.GetDirectoryName(path);
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
                 List<string> l = new List<string>();
-                l.Add("x=" + X.ToString(CultureInfo.InvariantCulture));
-                l.Add("y=" + Y.ToString(CultureInfo.InvariantCulture));
+                if (includePosition)
+                {
+                    l.Add("x=" + X.ToString(CultureInfo.InvariantCulture));
+                    l.Add("y=" + Y.ToString(CultureInfo.InvariantCulture));
+                }
                 l.Add("opacity=" + Opacity.ToString("0.00", CultureInfo.InvariantCulture));
                 l.Add("width=" + Width.ToString(CultureInfo.InvariantCulture));
                 l.Add("graphheight=" + GraphHeight.ToString(CultureInfo.InvariantCulture));
@@ -271,6 +302,9 @@ namespace LoadView
 
                 l.Add("drivelabelsize=" + F(DriveLabelSize));
                 l.Add("drivelabelbold=" + B(DriveLabelBold));
+                l.Add("listsize=" + F(ListSize));
+                l.Add("ipsize=" + F(IpSize));
+                l.Add("nettotalssize=" + F(NetTotalsSize));
 
                 l.Add("netunitbytes=" + B(NetUnitBytes));
                 l.Add("externalip=" + B(ExternalIpEnabled));
@@ -279,7 +313,8 @@ namespace LoadView
                 l.Add("gpucolor=" + Hex(GpuColor));
                 l.Add("memcolor=" + Hex(MemColor));
                 l.Add("diskcolor=" + Hex(DiskColor));
-                l.Add("netcolor=" + Hex(NetColor));
+                l.Add("netdowncolor=" + Hex(NetDownColor));
+                l.Add("netupcolor=" + Hex(NetUpColor));
 
                 l.Add("cpumax=" + D(CpuMax));
                 l.Add("gpumax=" + D(GpuMax));

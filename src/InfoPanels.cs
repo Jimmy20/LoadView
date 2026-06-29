@@ -202,27 +202,29 @@ namespace LoadView
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
             Font lf = LabelFont();
-            int gap = Math.Max(2, DriveRowPx / 12);
+            int lh = LineH(lf);
+            int barH = Math.Max(4, (int)(DriveRowPx * 0.26));
+            int gap = Math.Max(1, (int)(2 * DeviceDpi / 96f));
+            int groupH = lh + gap + barH;
             for (int i = 0; i < d.Length; i++)
             {
                 int rowY = HeaderPx + i * DriveRowPx;
-                int labelH = (int)(DriveRowPx * 0.52);
-                int barH = Math.Max(4, (int)(DriveRowPx * 0.28));
+                int top = rowY + Math.Max(0, (DriveRowPx - groupH) / 2); // center label+bar in the row
 
                 string left = string.Format(CultureInfo.InvariantCulture, "{0}  {1} / {2}  ({3:0}%)",
                     d[i].Label, CapShort(d[i].UsedGB), CapShort(d[i].TotalGB), d[i].Pct);
                 string free = CapShort(d[i].FreeGB) + " free";
 
                 Size freeSz = TextRenderer.MeasureText(g, free, lf);
-                Rectangle freeRect = new Rectangle(pad + contentW - freeSz.Width, rowY, freeSz.Width, labelH);
-                Rectangle leftRect = new Rectangle(pad, rowY, contentW - freeSz.Width - 6, labelH);
+                Rectangle freeRect = new Rectangle(pad + contentW - freeSz.Width, top, freeSz.Width, lh);
+                Rectangle leftRect = new Rectangle(pad, top, contentW - freeSz.Width - 6, lh);
 
                 TextRenderer.DrawText(g, left, lf, leftRect, TextColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, free, lf, freeRect, DimColor,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
-                int barY = rowY + labelH + gap;
+                int barY = top + lh + gap;
                 Rectangle track = new Rectangle(pad, barY, contentW, barH);
                 using (SolidBrush tb = new SolidBrush(Track)) g.FillRectangle(tb, track);
 
@@ -248,18 +250,50 @@ namespace LoadView
     // One-line section, e.g. session network totals. The form sets the full text.
     internal sealed class NetTotalsPanel : InfoPanelBase
     {
-        public string Line = "";
+        public string DownText = "";
+        public string UpText = "";
+        public Color DownColor = Color.FromArgb(0x57, 0xD0, 0x6F);
+        public Color UpColor = Color.FromArgb(0xE0, 0x5A, 0x5A);
+        public float TextSize = 9f;
 
-        public int PreferredHeight() { return LineH(Font) + Pad(); }
+        private Font _f;
+        private float _built = -1;
+        private Font F()
+        {
+            if (_f == null || _built != TextSize)
+            {
+                if (_f != null) _f.Dispose();
+                _f = new Font(Font.FontFamily, TextSize, FontStyle.Regular);
+                _built = TextSize;
+            }
+            return _f;
+        }
+
+        public int PreferredHeight() { return LineH(F()) + Pad(); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
             g.Clear(BackColor);
+            Font f = F();
             int pad = Math.Max(4, Width / 24);
-            Rectangle r = new Rectangle(pad, 0, Width - 2 * pad, Height);
-            TextRenderer.DrawText(g, Line, Font, r, TextColor,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            int y = Math.Max(0, (Height - LineH(f)) / 2);
+            int x = pad;
+            x += Seg(g, "Total   ", f, x, y, DimColor);
+            x += Seg(g, DownText + "    ", f, x, y, DownColor);
+            Seg(g, UpText, f, x, y, UpColor);
+        }
+
+        private static int Seg(Graphics g, string s, Font f, int x, int y, Color c)
+        {
+            TextRenderer.DrawText(g, s, f, new Point(x, y), c, TextFormatFlags.NoPadding);
+            return TextRenderer.MeasureText(g, s, f, Size.Empty, TextFormatFlags.NoPadding).Width;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && _f != null) _f.Dispose();
+            base.Dispose(disposing);
         }
     }
 
@@ -269,13 +303,23 @@ namespace LoadView
         public string Header = "";
         public ProcEntry[] Rows = new ProcEntry[0];
         public bool IsBytes;   // true: value is RAM bytes; false: value is CPU percent
+        public float TextSize = 9f;
         private const int MaxRows = 5;
 
-        private Font _hdr;
-        private Font HeaderFont()
+        private Font _hdr, _row;
+        private float _builtRow = -1;
+
+        // Header stays a fixed size (matches the other section titles); only rows scale.
+        private Font Hdr() { if (_hdr == null) _hdr = new Font(Font, FontStyle.Bold); return _hdr; }
+        private Font Row()
         {
-            if (_hdr == null) _hdr = new Font(Font, FontStyle.Bold);
-            return _hdr;
+            if (_row == null || _builtRow != TextSize)
+            {
+                if (_row != null) _row.Dispose();
+                _row = new Font(Font.FontFamily, TextSize, FontStyle.Regular);
+                _builtRow = TextSize;
+            }
+            return _row;
         }
 
         protected override void OnFontChanged(EventArgs e)
@@ -284,7 +328,7 @@ namespace LoadView
             if (_hdr != null) { _hdr.Dispose(); _hdr = null; }
         }
 
-        public int PreferredHeight() { return (1 + MaxRows) * LineH(Font) + Pad(); }
+        public int PreferredHeight() { return LineH(Hdr()) + MaxRows * LineH(Row()) + Pad(); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -292,30 +336,31 @@ namespace LoadView
             g.Clear(BackColor);
             int pad = Math.Max(4, Width / 24);
             int contentW = Width - 2 * pad;
-            int lh = LineH(Font);
+            int hh = LineH(Hdr());
+            int lh = LineH(Row());
 
-            TextRenderer.DrawText(g, Header, HeaderFont(), new Rectangle(pad, 0, contentW, lh), DimColor,
+            TextRenderer.DrawText(g, Header, Hdr(), new Rectangle(pad, 0, contentW, hh), DimColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
             ProcEntry[] rows = Rows == null ? new ProcEntry[0] : Rows;
             for (int i = 0; i < MaxRows && i < rows.Length; i++)
             {
-                int y = (i + 1) * lh;
+                int y = hh + i * lh;
                 string val = IsBytes ? Bytes(rows[i].Value)
                                      : string.Format(CultureInfo.InvariantCulture, "{0:0}%", rows[i].Value);
-                Size vsz = TextRenderer.MeasureText(g, val, Font);
+                Size vsz = TextRenderer.MeasureText(g, val, _row);
                 Rectangle vr = new Rectangle(pad + contentW - vsz.Width, y, vsz.Width, lh);
                 Rectangle nr = new Rectangle(pad, y, contentW - vsz.Width - 6, lh);
-                TextRenderer.DrawText(g, rows[i].Name, Font, nr, TextColor,
+                TextRenderer.DrawText(g, rows[i].Name, _row, nr, TextColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
-                TextRenderer.DrawText(g, val, Font, vr, TextColor,
+                TextRenderer.DrawText(g, val, _row, vr, TextColor,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             }
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _hdr != null) _hdr.Dispose();
+            if (disposing) { if (_hdr != null) _hdr.Dispose(); if (_row != null) _row.Dispose(); }
             base.Dispose(disposing);
         }
     }
@@ -326,12 +371,22 @@ namespace LoadView
         public string Lan = "—";
         public string Wan = "—";
         public bool ShowWan = true;
+        public float TextSize = 9f;
 
-        private Font _hdr;
-        private Font HeaderFont()
+        private Font _hdr, _row;
+        private float _builtRow = -1;
+
+        // Header stays a fixed size (matches other section titles); only LAN/WAN scale.
+        private Font Hdr() { if (_hdr == null) _hdr = new Font(Font, FontStyle.Bold); return _hdr; }
+        private Font Row()
         {
-            if (_hdr == null) _hdr = new Font(Font, FontStyle.Bold);
-            return _hdr;
+            if (_row == null || _builtRow != TextSize)
+            {
+                if (_row != null) _row.Dispose();
+                _row = new Font(Font.FontFamily, TextSize, FontStyle.Regular);
+                _builtRow = TextSize;
+            }
+            return _row;
         }
 
         protected override void OnFontChanged(EventArgs e)
@@ -342,8 +397,8 @@ namespace LoadView
 
         public int PreferredHeight()
         {
-            int lines = 1 + 1 + (ShowWan ? 1 : 0); // header + LAN + WAN?
-            return lines * LineH(Font) + Pad();
+            int rows = 1 + (ShowWan ? 1 : 0);
+            return LineH(Hdr()) + rows * LineH(Row()) + Pad();
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -352,20 +407,21 @@ namespace LoadView
             g.Clear(BackColor);
             int pad = Math.Max(4, Width / 24);
             int contentW = Width - 2 * pad;
-            int lh = LineH(Font);
+            int hh = LineH(Hdr());
+            int lh = LineH(Row());
 
-            TextRenderer.DrawText(g, "IP", HeaderFont(), new Rectangle(pad, 0, contentW, lh), DimColor,
+            TextRenderer.DrawText(g, "IP", Hdr(), new Rectangle(pad, 0, contentW, hh), DimColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(g, "LAN:  " + Lan, Font, new Rectangle(pad, lh, contentW, lh), TextColor,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, "LAN:  " + Lan, Row(), new Rectangle(pad, hh, contentW, lh), TextColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             if (ShowWan)
-                TextRenderer.DrawText(g, "WAN:  " + Wan, Font, new Rectangle(pad, lh * 2, contentW, lh), TextColor,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(g, "WAN:  " + Wan, Row(), new Rectangle(pad, hh + lh, contentW, lh), TextColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _hdr != null) _hdr.Dispose();
+            if (disposing) { if (_hdr != null) _hdr.Dispose(); if (_row != null) _row.Dispose(); }
             base.Dispose(disposing);
         }
     }
