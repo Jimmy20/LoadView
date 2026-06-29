@@ -8,8 +8,10 @@ using System.Windows.Forms;
 
 namespace LoadView
 {
-    // The always-on-top, draggable, semi-transparent overlay. Top to bottom: clock, five
-    // metric graphs (CPU/GPU/MEM/DISK/NET), a text list of drives, then date + weekday.
+    // The draggable, semi-transparent overlay. Top to bottom: clock, metric graphs
+    // (CPU/GPU/MEM/DISK/NET), drive usage bars, date + weekday. Everything sizable,
+    // colorable and toggleable from the Settings dialog; can float on top or behave
+    // like a normal (coverable) window.
     internal sealed class OverlayForm : Form
     {
         [DllImport("user32.dll")]
@@ -36,7 +38,7 @@ namespace LoadView
 
         private readonly MetricsSampler _sampler;
         private readonly Timer _timer;
-        private readonly Settings _settings;
+        private Settings _settings;
 
         private ClockPanel _clock;
         private GraphPanel _cpu, _gpu, _ram, _disk, _net;
@@ -44,6 +46,7 @@ namespace LoadView
         private FooterPanel _footer;
 
         private ContextMenuStrip _menu;
+        private ToolStripMenuItem _lockItem;
         private NotifyIcon _tray;
 
         private bool _dragging;
@@ -66,7 +69,6 @@ namespace LoadView
             BackColor = Color.FromArgb(12, 12, 14); // shows through 1px gaps as separators
             Font = new Font("Segoe UI", 9f);
             DoubleBuffered = true;
-            Opacity = ClampOpacity(_settings.Opacity);
             Text = "LoadView";
 
             BuildPanels();
@@ -99,7 +101,6 @@ namespace LoadView
             _net.Accent2 = Color.FromArgb(0x55, 0xD6, 0xFF);
             _net.Percent = false;
             _net.MinScale = 1; // 1 Mbps floor
-            _net.ScaleLabeler = FormatMbpsScale;
 
             _drives = new DrivesPanel();
             _footer = new FooterPanel();
@@ -127,15 +128,14 @@ namespace LoadView
         {
             if (_menu != null) return _menu;
             _menu = new ContextMenuStrip();
+
+            _lockItem = new ToolStripMenuItem("Lock");
+            _lockItem.Click += delegate { ToggleLock(); };
+            _menu.Items.Add(_lockItem);
+
             _menu.Items.Add("Reset position", null, delegate { ResetPosition(); });
-
-            ToolStripMenuItem op = new ToolStripMenuItem("Opacity");
-            op.DropDownItems.Add("50%", null, delegate { SetOpacity(0.50); });
-            op.DropDownItems.Add("70%", null, delegate { SetOpacity(0.70); });
-            op.DropDownItems.Add("85%", null, delegate { SetOpacity(0.85); });
-            op.DropDownItems.Add("100%", null, delegate { SetOpacity(1.00); });
-            _menu.Items.Add(op);
-
+            _menu.Items.Add("Settings...", null, delegate { OpenSettings(); });
+            _menu.Items.Add("About", null, delegate { OpenAbout(); });
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add("Exit", null, delegate { Close(); });
             return _menu;
@@ -151,7 +151,10 @@ namespace LoadView
 
             ContextMenuStrip tm = new ContextMenuStrip();
             tm.Items.Add("Show / Hide", null, delegate { ToggleVisible(); });
+            tm.Items.Add(new ToolStripSeparator());
             tm.Items.Add("Reset position", null, delegate { ResetPosition(); });
+            tm.Items.Add("Settings...", null, delegate { OpenSettings(); });
+            tm.Items.Add("About", null, delegate { OpenAbout(); });
             tm.Items.Add(new ToolStripSeparator());
             tm.Items.Add("Exit", null, delegate { Close(); });
             _tray.ContextMenuStrip = tm;
@@ -192,6 +195,7 @@ namespace LoadView
 
         private void DragDown(object sender, MouseEventArgs e)
         {
+            if (_settings.Locked) return;
             if (e.Button == MouseButtons.Left)
             {
                 _dragging = true;
@@ -219,10 +223,32 @@ namespace LoadView
 
         // ---------- commands ----------
 
+        private void OpenSettings()
+        {
+            // Apply/OK invoke ApplySettings live (so Apply can update without closing).
+            using (SettingsForm f = new SettingsForm(_settings.Clone(), ApplySettings))
+            {
+                f.ShowDialog(this);
+            }
+        }
+
+        private void OpenAbout()
+        {
+            using (AboutForm a = new AboutForm())
+                a.ShowDialog(this);
+        }
+
+        private void ToggleLock()
+        {
+            _settings.Locked = !_settings.Locked;
+            if (_lockItem != null) _lockItem.Checked = _settings.Locked;
+            SaveSettings();
+        }
+
         private void ToggleVisible()
         {
             Visible = !Visible;
-            if (Visible) { TopMost = true; AssertTopmost(); }
+            if (Visible && _settings.AlwaysOnTop) { TopMost = true; AssertTopmost(); }
         }
 
         private void ResetPosition()
@@ -233,10 +259,43 @@ namespace LoadView
             SaveSettings();
         }
 
-        private void SetOpacity(double o)
+        // ---------- apply settings ----------
+
+        private void ApplySettings(Settings s)
         {
-            Opacity = ClampOpacity(o);
+            _settings = s;
+            ApplyVisuals();
+            DoLayout();
+            if (_settings.AlwaysOnTop) AssertTopmost();
             SaveSettings();
+        }
+
+        private void ApplyVisuals()
+        {
+            Opacity = ClampOpacity(_settings.Opacity);
+            TopMost = _settings.AlwaysOnTop;
+
+            _clock.SizePt = _settings.ClockSize;
+            _clock.Ink = _settings.ClockColor;
+            _clock.Visible = _settings.ShowClock;
+
+            _footer.DateSizePt = _settings.DateSize;
+            _footer.DaySizePt = _settings.DaySize;
+            _footer.DateInk = _settings.DateColor;
+            _footer.DayInk = _settings.DayColor;
+            _footer.Visible = _settings.ShowFooter;
+
+            _cpu.Visible = _settings.ShowCpu;
+            _gpu.Visible = _settings.ShowGpu;
+            _ram.Visible = _settings.ShowMem;
+            _disk.Visible = _settings.ShowDisk;
+            _net.Visible = _settings.ShowNet;
+            _drives.Visible = _settings.ShowDrives;
+
+            if (_lockItem != null) _lockItem.Checked = _settings.Locked;
+
+            _clock.Invalidate();
+            _footer.Invalidate();
         }
 
         // ---------- sizing / layout ----------
@@ -246,30 +305,32 @@ namespace LoadView
         private void DoLayout()
         {
             float s = Scale();
-            int w = (int)(300 * s);
+            int w = (int)(_settings.Width * s);
             int gap = Math.Max(1, (int)(1 * s));
-            int clockH = (int)(42 * s);
-            int graphH = (int)(58 * s);
-            int footerH = (int)(48 * s);
-            int rowPx = (int)(18 * s);
-            int driveRows = (_drives.Drives != null ? _drives.Drives.Length : 0) + 1; // + header
-            int drivesH = driveRows * rowPx + (int)(8 * s);
+            int graphH = (int)(_settings.GraphHeight * s);
+
+            _drives.HeaderPx = (int)(18 * s);
+            _drives.DriveRowPx = (int)(_settings.DriveRowHeight * s);
+            int driveCount = _drives.Drives != null ? _drives.Drives.Length : 0;
+            int drivesH = _drives.ContentHeight(driveCount);
 
             int y = 0;
-            PlaceRow(_clock, w, ref y, clockH, gap);
-            PlaceRow(_cpu, w, ref y, graphH, gap);
-            PlaceRow(_gpu, w, ref y, graphH, gap);
-            PlaceRow(_ram, w, ref y, graphH, gap);
-            PlaceRow(_disk, w, ref y, graphH, gap);
-            PlaceRow(_net, w, ref y, graphH, gap);
-            PlaceRow(_drives, w, ref y, drivesH, gap);
-            PlaceRow(_footer, w, ref y, footerH, 0);
+            PlaceIf(_clock, _settings.ShowClock, w, ref y, _clock.PreferredHeight(), gap);
+            PlaceIf(_cpu, _settings.ShowCpu, w, ref y, graphH, gap);
+            PlaceIf(_gpu, _settings.ShowGpu, w, ref y, graphH, gap);
+            PlaceIf(_ram, _settings.ShowMem, w, ref y, graphH, gap);
+            PlaceIf(_disk, _settings.ShowDisk, w, ref y, graphH, gap);
+            PlaceIf(_net, _settings.ShowNet, w, ref y, graphH, gap);
+            PlaceIf(_drives, _settings.ShowDrives, w, ref y, drivesH, gap);
+            PlaceIf(_footer, _settings.ShowFooter, w, ref y, _footer.PreferredHeight(), gap);
 
-            ClientSize = new Size(w, y);
+            int h = y > 0 ? y - gap : 1; // trim trailing gap
+            ClientSize = new Size(w, h);
         }
 
-        private static void PlaceRow(Control c, int w, ref int y, int h, int gap)
+        private static void PlaceIf(Control c, bool visible, int w, ref int y, int h, int gap)
         {
+            if (!visible) return;
             c.SetBounds(0, y, w, h);
             y += h + gap;
         }
@@ -350,6 +411,7 @@ namespace LoadView
             base.OnLoad(e);
 
             RefreshDrives(false);
+            ApplyVisuals();
             DoLayout();
 
             Rectangle saved = new Rectangle(new Point(_settings.X, _settings.Y), Size);
@@ -362,7 +424,7 @@ namespace LoadView
             _sampler.Warmup();
             OnTick(null, null); // populate immediately
             _timer.Start();
-            AssertTopmost();
+            if (_settings.AlwaysOnTop) AssertTopmost();
         }
 
         protected override void OnResize(EventArgs e)
@@ -411,7 +473,7 @@ namespace LoadView
             MetricsSnapshot s = _sampler.Sample();
             DateTime now = DateTime.Now;
 
-            _clock.TimeText = now.ToString("HH:mm:ss", CultureInfo.CurrentCulture);
+            _clock.TimeText = now.ToString(_settings.ShowSeconds ? "HH:mm:ss" : "HH:mm", CultureInfo.CurrentCulture);
             _clock.Invalidate();
 
             string cpuTemp = s.CpuTempValid ? " · " + Temp(s.CpuTempC) : "";
@@ -480,14 +542,6 @@ namespace LoadView
             return string.Format(CultureInfo.InvariantCulture, "{0:0} bps", bits);
         }
 
-        // Label for the network graph's auto-scaled ceiling (value is in Mbps).
-        private static string FormatMbpsScale(double mbps)
-        {
-            if (mbps >= 1000) return string.Format(CultureInfo.InvariantCulture, "{0:0} Gbps", mbps / 1000.0);
-            if (mbps >= 1) return string.Format(CultureInfo.InvariantCulture, "{0:0} Mbps", mbps);
-            return string.Format(CultureInfo.InvariantCulture, "{0:0} Kbps", mbps * 1000.0);
-        }
-
         private static string Capitalize(string s)
         {
             if (string.IsNullOrEmpty(s)) return s;
@@ -496,6 +550,7 @@ namespace LoadView
 
         private void AssertTopmost()
         {
+            if (!_settings.AlwaysOnTop) return;
             if (IsHandleCreated)
                 SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }

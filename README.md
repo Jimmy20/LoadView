@@ -11,6 +11,9 @@ clock, per-drive capacity, the date and the weekday.
 - **Resolution / DPI agnostic**: starts top-right of the primary display, is draggable,
   and remembers its last position.
 - Semi-transparent, draggable, lives in the system tray.
+- **Configurable**: a Settings dialog lets you resize the window/graphs, show or hide any
+  section, change clock/date/weekday size, color and the seconds toggle, set opacity, lock
+  the position, and switch between always-on-top and a normal (coverable) window.
 
 ## Build
 
@@ -28,11 +31,24 @@ This produces `bin\LoadView.exe`.
 ./bin/LoadView.exe
 ```
 
-- **Drag** anywhere on the panel to move it; the position is saved.
-- **Right-click** the panel (or the tray icon) for: *Reset position*, *Opacity*, *Exit*.
+- **Drag** anywhere on the panel to move it; the position is saved (unless locked).
+- **Right-click** the panel (or the tray icon) for: *Settings…*, *Lock*, *About*,
+  *Reset position*, *Opacity*, *Exit*.
 - **Double-click** the tray icon to show/hide.
 
-Settings (position + opacity) are stored in `%APPDATA%\LoadView\settings.ini`.
+All settings are stored in `%APPDATA%\LoadView\settings.ini` (delete it to reset to defaults).
+
+## Settings
+
+Right-click → **Settings…** opens a dialog with:
+
+- **Layout** — window width, graph height (applies to all metric graphs), drive-bar height.
+- **Clock / date** — show-seconds toggle; size and color for the clock, date and weekday.
+- **Sections** — show/hide each of Clock, CPU, GPU, MEM, DISK, NET, Drives, Date/weekday.
+- **Behavior** — opacity; *Always on top* (uncheck for a normal window other apps can cover);
+  *Lock position* (disables dragging).
+
+**Lock** and **About** (version + changelog) are also directly on the right-click menu.
 
 ## Start with Windows (optional)
 
@@ -48,8 +64,8 @@ that opens.
 | GPU     | % of busiest GPU   | `6%` (`· 61°C` on NVIDIA GPUs)             |
 | MEM     | % physical RAM     | `20.3/31.7 GB (64%)`                       |
 | DISK    | % active time      | `11%  R 0.8 / W 0.3 MB/s`                  |
-| NET     | down + up, auto-scaled (ceiling shown, e.g. `10 Mbps`) | `↓ 78 Kbps  ↑ 86 Kbps` |
-| DRIVES  | — (text only)      | each drive: `C: 143 / 235 GB (61%)`        |
+| NET     | down + up, auto-scaled (no text inside the plot) | `↓ 78 Kbps  ↑ 86 Kbps` |
+| DRIVES  | usage bar per drive (This PC style; red ≥90%) | each drive: `C: 143 / 235 GB (61%)` |
 | Date    | —                  | `29.06.2026` then the weekday below        |
 
 If a metric's counter isn't available on a given machine, that row shows `n/a` and the
