@@ -1,0 +1,9 @@
+# Build output
+/bin/
+/obj/
+
+# User-specific
+*.user
+*.suo
+
+# Runtime settings live in %APPDATA%\LoadView, not in the repo
