@@ -60,12 +60,12 @@ namespace LoadView
             BackColor = Bg;
             ForeColor = Ink;
             Font = new Font("Segoe UI", 9.5f);
-            AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(630, 520);
+            AutoScaleMode = AutoScaleMode.Font; // scale consistently on high-DPI displays
+            ClientSize = new Size(660, 560);
 
             Panel bottom = new Panel();
             bottom.Dock = DockStyle.Bottom;
-            bottom.Height = 48;
+            bottom.Height = 52;
             bottom.BackColor = Bg;
             Controls.Add(bottom);
             BuildButtons(bottom);
@@ -81,6 +81,7 @@ namespace LoadView
             _nav.BackColor = NavBg;
             _nav.ForeColor = Ink;
             _nav.BorderStyle = BorderStyle.None;
+            _nav.IntegralHeight = false; // fill the docked height (don't collapse to whole items)
             _nav.DrawMode = DrawMode.OwnerDrawFixed;
             _nav.ItemHeight = 30;
             _nav.DrawItem += NavDrawItem;
@@ -295,12 +296,13 @@ namespace LoadView
 
         private void BuildButtons(Panel bottom)
         {
-            const int bw = 90, bh = 30, bgap = 10;
-            int right = 630 - 16;
+            const int bw = 90, bh = 32, bgap = 10;
+            int right = 660 - 16;
 
             Button ok = new Button();
             ok.Text = "OK";
-            ok.SetBounds(right - bw * 2 - bgap, 9, bw, bh);
+            ok.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            ok.SetBounds(right - bw * 2 - bgap, 10, bw, bh);
             StyleButton(ok);
             ok.Click += delegate { CommitToWorking(); Startup.SetEnabled(_startup.Checked); DialogResult = DialogResult.OK; };
             bottom.Controls.Add(ok);
@@ -308,7 +310,8 @@ namespace LoadView
             Button cancel = new Button();
             cancel.Text = "Cancel";
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.SetBounds(right - bw, 9, bw, bh);
+            cancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            cancel.SetBounds(right - bw, 10, bw, bh);
             StyleButton(cancel);
             bottom.Controls.Add(cancel);
 
