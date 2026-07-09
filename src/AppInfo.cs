@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.4.0";
+        public const string Version = "2.5.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.5.0",
+            "  - Redesigned Settings: category sidebar, aligned rows, tooltips, live preview",
+            "  - Right-click menu adds Always on top (under Lock)",
+            "  - New out-of-the-box defaults (bigger clock/date/weekday, etc.)",
+            "",
             "2.4.0",
             "  - Start with Windows now uses a Startup shortcut (avoids the Defender flag)",
             "  - Embedded app icon (same as tray); tray click brings the overlay to front",

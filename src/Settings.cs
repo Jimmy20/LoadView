@@ -38,33 +38,33 @@ namespace LoadView
         public double Opacity = 0.9;
 
         // layout
-        public int Width = 300;
-        public int GraphHeight = 58;
-        public int DriveRowHeight = 30;
+        public int Width = 250;
+        public int GraphHeight = 120;
+        public int DriveRowHeight = 50;
         public List<string> Order = new List<string>(AllSections);
 
         // Remembered window position per display signature (resolution/layout) -> {x,y}.
         public Dictionary<string, int[]> Positions = new Dictionary<string, int[]>();
 
         // clock / date / weekday
-        public bool ShowSeconds = true;
-        public float ClockSize = 20f;
-        public float DateSize = 13f;
-        public float DaySize = 10f;
+        public bool ShowSeconds = false;
+        public float ClockSize = 50f;
+        public float DateSize = 20f;
+        public float DaySize = 25f;
         public bool DateBold = true;
-        public bool DayBold = false;
-        public Color ClockColor = Color.FromArgb(232, 232, 237);
+        public bool DayBold = true;
+        public Color ClockColor = Color.FromArgb(255, 255, 255);
         public Color DateColor = Color.FromArgb(232, 232, 237);
-        public Color DayColor = Color.FromArgb(150, 150, 158);
+        public Color DayColor = Color.FromArgb(255, 255, 128);
 
         // drives
         public float DriveLabelSize = 9f;
         public bool DriveLabelBold = false;
 
         // process lists / IP / net-totals text size
-        public float ListSize = 9f;
-        public float IpSize = 9f;
-        public float NetTotalsSize = 9f;
+        public float ListSize = 11f;
+        public float IpSize = 11f;
+        public float NetTotalsSize = 12f;
 
         // network
         public bool NetUnitBytes = true;       // true: MB/s & kB/s ; false: Mbps & Kbps

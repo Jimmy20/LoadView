@@ -33,42 +33,41 @@ This produces `bin\LoadView.exe`.
 
 - **Drag** anywhere on the panel to move it; the position is saved **per screen resolution**
   (each display layout remembers its own spot and is restored when you return to it).
-- **Right-click** the panel (or the tray icon) for: *Lock*, *Reset position*, *Settings…*,
-  *About*, *Exit*.
+- **Right-click** the panel (or the tray icon) for: *Lock*, *Always on top*, *Reset position*,
+  *Settings…*, *About*, *Exit*.
 - **Left-click the tray icon** to bring the overlay to the front (even in background mode).
 
 All settings are stored in `%APPDATA%\LoadView\settings.ini` (delete it to reset to defaults).
 
 ## Settings
 
-Right-click → **Settings…** opens a scrollable dialog (always centered on screen) with:
+Right-click → **Settings…** opens a dialog with a **category sidebar** on the left; picking a
+category shows its options on the right. Changes **preview live on the overlay** as you make
+them — **OK** keeps them, **Cancel** reverts. Categories:
 
-- **Layout** — window width, graph height (applies to all graphs), drive-bar height, and the
-  network unit (**MB/s** bytes, or **Mbps** bits).
+- **Layout** — window width, graph height (applies to all graphs), drive-bar height, refresh
+  interval.
 - **Sections** — a checklist that controls both **visibility** (the checkbox) and **order**
   (the ▲▼ buttons) for every section: clock, each graph, net totals, top CPU, top RAM,
   drives, IP, date/weekday.
 - **Graphs** — per graph: accent **color**, **max** (0 = auto / 100% default), and a red
   **alert** threshold (e.g. CPU ≥ 90 turns the whole graph red; 0 = off). The network max is
   in the selected unit.
-- **Network** — separate **download / upload colors** (default green / red, used by the NET
-  graph and the totals line) and the net-totals **text size**.
-- **Clock / date** — show-seconds; size + color for clock/date/weekday; **bold** toggles for
-  date and weekday; drive-label size + bold.
-- **Network** (cont.) — **LAN IP refresh** and **WAN IP refresh** intervals in seconds
-  (defaults 10 s / 600 s).
-- **Process lists / IP** — text size for the Top CPU/RAM lists and the IP section.
-- **Behavior** — opacity; **refresh interval**; show external (public) IP; **Start with
-  Windows**; **write debug log**; *Always on top* (uncheck for a normal coverable window);
-  *Lock position*.
+- **Clock & date** — show-seconds; size + colour for clock/date/weekday; **bold** toggles for
+  date and weekday.
+- **Drives & lists** — drive-label size + bold; Top CPU/RAM text size; IP text size.
+- **Network** — unit (**MB/s** bytes or **Mbps** bits); **download / upload colours** (default
+  green / red); net-totals text size; **LAN / WAN IP refresh** intervals (seconds).
+- **Behavior** — opacity; *Always on top*; *Lock position*; show external IP; **Start with
+  Windows**; **write debug log**.
 - **Defaults** — *Save current as defaults* writes your config to `defaults.ini`; *Reset to
   defaults* restores it. When `settings.ini` is absent the app falls back to `defaults.ini`
   (then to the built-in defaults), so you can copy `defaults.ini` to other machines.
 
 Only one instance runs at a time (launching again is a no-op).
 
-The right-click menu order is **Lock · Reset position · Settings… · About · Exit**. About
-shows the version and changelog.
+The right-click menu order is **Lock · Always on top · Reset position · Settings… · About ·
+Exit**. About shows the version and changelog.
 
 ## Start with Windows
 

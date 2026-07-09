@@ -54,6 +54,7 @@ namespace LoadView
 
         private ContextMenuStrip _menu;
         private ToolStripMenuItem _lockItem;
+        private ToolStripMenuItem _topItem;
         private NotifyIcon _tray;
 
         private bool _dragging;
@@ -168,6 +169,9 @@ namespace LoadView
             _lockItem = new ToolStripMenuItem("Lock");
             _lockItem.Click += delegate { ToggleLock(); };
             _menu.Items.Add(_lockItem);
+            _topItem = new ToolStripMenuItem("Always on top");
+            _topItem.Click += delegate { ToggleAlwaysOnTop(); };
+            _menu.Items.Add(_topItem);
             _menu.Items.Add("Reset position", null, delegate { ResetPosition(); });
             _menu.Items.Add("Settings...", null, delegate { OpenSettings(); });
             _menu.Items.Add("About", null, delegate { OpenAbout(); });
@@ -275,8 +279,19 @@ namespace LoadView
 
         private void OpenSettings()
         {
-            using (SettingsForm f = new SettingsForm(_settings.Clone(), ApplySettings))
-                f.ShowDialog(this);
+            Settings original = _settings.Clone();
+            using (SettingsForm f = new SettingsForm(_settings.Clone(), PreviewSettings))
+            {
+                if (f.ShowDialog(this) == DialogResult.OK)
+                {
+                    PreviewSettings(f.Result);
+                    SaveSettings();          // persist only on OK
+                }
+                else
+                {
+                    PreviewSettings(original); // Cancel reverts the live preview
+                }
+            }
         }
 
         private void OpenAbout()
@@ -289,6 +304,17 @@ namespace LoadView
         {
             _settings.Locked = !_settings.Locked;
             if (_lockItem != null) _lockItem.Checked = _settings.Locked;
+            SaveSettings();
+        }
+
+        private void ToggleAlwaysOnTop()
+        {
+            _settings.AlwaysOnTop = !_settings.AlwaysOnTop;
+            TopMost = _settings.AlwaysOnTop;
+            if (_settings.AlwaysOnTop) AssertTopmost();
+            else if (IsHandleCreated)
+                SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            if (_topItem != null) _topItem.Checked = _settings.AlwaysOnTop;
             SaveSettings();
         }
 
@@ -320,13 +346,14 @@ namespace LoadView
 
         // ---------- apply settings ----------
 
-        private void ApplySettings(Settings s)
+        // Apply settings to the overlay without persisting (used for live preview from the
+        // Settings dialog; disk is written only on OK via SaveSettings).
+        private void PreviewSettings(Settings s)
         {
             _settings = s;
             ApplyVisuals();
             DoLayout();
             if (_settings.AlwaysOnTop) AssertTopmost();
-            SaveSettings();
         }
 
         private void ApplyVisuals()
@@ -386,6 +413,7 @@ namespace LoadView
             }
 
             if (_lockItem != null) _lockItem.Checked = _settings.Locked;
+            if (_topItem != null) _topItem.Checked = _settings.AlwaysOnTop;
         }
 
         // ---------- sizing / layout ----------
