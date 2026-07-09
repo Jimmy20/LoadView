@@ -26,7 +26,7 @@ namespace LoadView
         private const int ContentW = 470;
 
         // controls
-        private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize, _driveLblSize, _listSize, _ipSize, _netTotalsSize;
+        private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize, _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
@@ -91,6 +91,8 @@ namespace LoadView
             _netTotalsSize = AddNum("Net totals text size (pt)", 7, 28, (int)_working.NetTotalsSize);
             _netDownColor = AddColor("Download color", _working.NetDownColor);
             _netUpColor = AddColor("Upload color", _working.NetUpColor);
+            _ipLanSec = AddNum("LAN IP refresh (s)", 2, 3600, _working.IpLanRefreshSec);
+            _ipWanSec = AddNum("WAN IP refresh (s)", 30, 86400, _working.IpWanRefreshSec);
 
             Section("Clock / date");
             _seconds = AddCheckFull("Show seconds", _working.ShowSeconds);
@@ -310,6 +312,8 @@ namespace LoadView
             _working.NetDownColor = _netDownColor.BackColor;
             _working.NetUpColor = _netUpColor.BackColor;
             _working.NetTotalsSize = (float)_netTotalsSize.Value;
+            _working.IpLanRefreshSec = (int)_ipLanSec.Value;
+            _working.IpWanRefreshSec = (int)_ipWanSec.Value;
 
             _working.ShowSeconds = _seconds.Checked;
             _working.ClockSize = (float)_clockSize.Value;

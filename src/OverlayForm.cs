@@ -15,7 +15,10 @@ namespace LoadView
     {
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOACTIVATE = 0x0010;
@@ -31,6 +34,7 @@ namespace LoadView
         private struct RECT { public int left, top, right, bottom; }
 
         private const int WM_DPICHANGED = 0x02E0;
+        private const int WM_DISPLAYCHANGE = 0x007E;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const double GiB = 1024.0 * 1024.0 * 1024.0;
 
@@ -57,6 +61,7 @@ namespace LoadView
         private Point _dragFormStart;
 
         private string _driveSig = "";
+        private string _activeSig = "";
         private bool _lastNetUnitBytes;
         private double _totalDownBytes, _totalUpBytes;
 
@@ -64,6 +69,7 @@ namespace LoadView
         {
             _settings = Settings.Load();
             Log.Enabled = _settings.DebugLog;
+            Startup.RemoveLegacyRunKey(); // clean up the HKCU\Run value older builds wrote
             _lastNetUnitBytes = _settings.NetUnitBytes;
             _sampler = new MetricsSampler();
             _procs = new ProcessSampler();
@@ -174,9 +180,12 @@ namespace LoadView
         {
             _tray = new NotifyIcon();
             _tray.Text = "LoadView";
-            _tray.Icon = MakeIcon();
+            _tray.Icon = LoadTrayIcon();
             _tray.Visible = true;
-            _tray.DoubleClick += delegate { ToggleVisible(); };
+            _tray.MouseClick += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left) ShowToFront();
+            };
 
             ContextMenuStrip tm = new ContextMenuStrip();
             tm.Items.Add("Show / Hide", null, delegate { ToggleVisible(); });
@@ -187,6 +196,18 @@ namespace LoadView
             tm.Items.Add(new ToolStripSeparator());
             tm.Items.Add("Exit", null, delegate { Close(); });
             _tray.ContextMenuStrip = tm;
+        }
+
+        // Prefer the exe's own embedded icon so the tray and the .exe show the same glyph.
+        private static Icon LoadTrayIcon()
+        {
+            try
+            {
+                Icon ico = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (ico != null) return ico;
+            }
+            catch { }
+            return MakeIcon();
         }
 
         private static Icon MakeIcon()
@@ -277,6 +298,18 @@ namespace LoadView
             if (Visible && _settings.AlwaysOnTop) { TopMost = true; AssertTopmost(); }
         }
 
+        // Bring the overlay to the foreground, even when it's a normal (non-topmost) window
+        // or currently hidden/covered.
+        private void ShowToFront()
+        {
+            if (!Visible) Visible = true;
+            if (!IsHandleCreated) return;
+            SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            if (!_settings.AlwaysOnTop)
+                SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetForegroundWindow(Handle);
+        }
+
         private void ResetPosition()
         {
             DoLayout();
@@ -343,6 +376,8 @@ namespace LoadView
 
             _ip.ShowWan = _settings.ExternalIpEnabled;
             _sysinfo.ExternalIpEnabled = _settings.ExternalIpEnabled;
+            _sysinfo.LanRefreshSec = _settings.IpLanRefreshSec;
+            _sysinfo.WanRefreshSec = _settings.IpWanRefreshSec;
 
             foreach (string key in Settings.AllSections)
             {
@@ -415,6 +450,33 @@ namespace LoadView
             return vs.IntersectsWith(r) && vs.Contains(handle);
         }
 
+        // Signature of the current display layout (resolution + multi-monitor arrangement).
+        private static string CurrentSig()
+        {
+            Rectangle v = SystemInformation.VirtualScreen;
+            return v.Left + "," + v.Top + "," + v.Width + "," + v.Height;
+        }
+
+        // Restore the position remembered for the current display layout, else the legacy
+        // single position (if it fits), else the default top-right.
+        private void RestorePosition()
+        {
+            _activeSig = CurrentSig();
+            int px, py;
+            if (_settings.TryGetPos(_activeSig, out px, out py) &&
+                IsOnScreen(new Rectangle(px, py, Width, Height)))
+            {
+                Location = new Point(px, py);
+                return;
+            }
+            if (_settings.HasPosition && IsOnScreen(new Rectangle(_settings.X, _settings.Y, Width, Height)))
+            {
+                Location = new Point(_settings.X, _settings.Y);
+                return;
+            }
+            Location = DefaultLocation(Size);
+        }
+
         private void ApplyRegion()
         {
             if (!IsHandleCreated) return;
@@ -434,10 +496,7 @@ namespace LoadView
             ApplyVisuals();
             DoLayout();
 
-            Rectangle saved = new Rectangle(new Point(_settings.X, _settings.Y), Size);
-            Location = (_settings.HasPosition && IsOnScreen(saved))
-                ? new Point(_settings.X, _settings.Y)
-                : DefaultLocation(Size);
+            RestorePosition();
 
             ApplyRegion();
 
@@ -465,6 +524,12 @@ namespace LoadView
                 return;
             }
             base.WndProc(ref m);
+            if (m.Msg == WM_DISPLAYCHANGE)
+            {
+                // Resolution/layout changed — restore this layout's remembered position.
+                RestorePosition();
+                ApplyRegion();
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -632,7 +697,8 @@ namespace LoadView
 
         private void SaveSettings()
         {
-            _settings.HasPosition = true;
+            _settings.SetPos(CurrentSig(), Location.X, Location.Y); // per-resolution memory
+            _settings.HasPosition = true;                            // legacy generic fallback
             _settings.X = Location.X;
             _settings.Y = Location.Y;
             _settings.Opacity = Opacity;

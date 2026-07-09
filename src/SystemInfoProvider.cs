@@ -22,6 +22,8 @@ namespace LoadView
         private string _externalIp = "";
 
         public volatile bool ExternalIpEnabled = true;
+        public volatile int LanRefreshSec = 10;
+        public volatile int WanRefreshSec = 600;
 
         private readonly Thread _thread;
         private volatile bool _stop;
@@ -43,10 +45,17 @@ namespace LoadView
         private void Loop()
         {
             long tick = 0;
+            DateTime lastLan = DateTime.MinValue;
             while (!_stop)
             {
                 try { if (tick % 3 == 0) RefreshDrives(); } catch { }
-                try { if (tick % 10 == 0) RefreshInternalIp(); } catch { }
+                try
+                {
+                    int lan = LanRefreshSec; if (lan < 1) lan = 1;
+                    if ((DateTime.UtcNow - lastLan).TotalSeconds >= lan)
+                    { RefreshInternalIp(); lastLan = DateTime.UtcNow; }
+                }
+                catch { }
                 try { RefreshExternalIp(); } catch { }
                 tick++;
                 for (int i = 0; i < 10 && !_stop; i++) Thread.Sleep(100); // ~1 s base
@@ -123,9 +132,11 @@ namespace LoadView
             string cur; lock (_lock) { cur = _externalIp; }
             bool have = cur.Length > 0 && cur != "—";
             double since = (DateTime.UtcNow - _lastExtAttempt).TotalSeconds;
-            // refresh every 10 min once known; retry ~30 s until we have one
-            if (have && since < 600) return;
-            if (!have && since < 30) return;
+            int wan = WanRefreshSec; if (wan < 5) wan = 5;
+            int retry = wan < 30 ? wan : 30;
+            // refresh every WanRefreshSec once known; retry sooner until we have one
+            if (have && since < wan) return;
+            if (!have && since < retry) return;
 
             _lastExtAttempt = DateTime.UtcNow;
             string ip = "—";
