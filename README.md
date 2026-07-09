@@ -31,10 +31,11 @@ This produces `bin\LoadView.exe`.
 ./bin/LoadView.exe
 ```
 
-- **Drag** anywhere on the panel to move it; the position is saved (unless locked).
-- **Right-click** the panel (or the tray icon) for: *Settings…*, *Lock*, *About*,
-  *Reset position*, *Opacity*, *Exit*.
-- **Double-click** the tray icon to show/hide.
+- **Drag** anywhere on the panel to move it; the position is saved **per screen resolution**
+  (each display layout remembers its own spot and is restored when you return to it).
+- **Right-click** the panel (or the tray icon) for: *Lock*, *Reset position*, *Settings…*,
+  *About*, *Exit*.
+- **Left-click the tray icon** to bring the overlay to the front (even in background mode).
 
 All settings are stored in `%APPDATA%\LoadView\settings.ini` (delete it to reset to defaults).
 
@@ -54,6 +55,8 @@ Right-click → **Settings…** opens a scrollable dialog (always centered on sc
   graph and the totals line) and the net-totals **text size**.
 - **Clock / date** — show-seconds; size + color for clock/date/weekday; **bold** toggles for
   date and weekday; drive-label size + bold.
+- **Network** (cont.) — **LAN IP refresh** and **WAN IP refresh** intervals in seconds
+  (defaults 10 s / 600 s).
 - **Process lists / IP** — text size for the Top CPU/RAM lists and the IP section.
 - **Behavior** — opacity; **refresh interval**; show external (public) IP; **Start with
   Windows**; **write debug log**; *Always on top* (uncheck for a normal coverable window);
@@ -69,8 +72,22 @@ shows the version and changelog.
 
 ## Start with Windows
 
-Tick **Start with Windows** in Settings (it adds a per-user `Run` registry entry — no admin
-needed). Or manually: `Win+R` → `shell:startup` → drop a shortcut to `LoadView.exe`.
+Tick **Start with Windows** in Settings. It creates a shortcut in your Startup folder
+(`shell:startup`) — no admin needed. (It deliberately does **not** write the `HKCU\…\Run`
+key; see *Antivirus / Defender* below.)
+
+## Antivirus / Defender
+
+An unsigned app that writes itself into `HKCU\…\Run` can trip Microsoft Defender's behavioral
+heuristic **`Behavior:Win32/Persistence.A!ml`** and get quarantined. LoadView therefore uses a
+Startup-folder shortcut (above) instead of the Run key, and ships proper version metadata in
+the exe. If Defender still flags it:
+
+1. **Restore it**: Windows Security → *Virus & threat protection* → *Protection history* →
+   allow/restore the item; optionally add an exclusion for the folder while testing.
+2. **Report the false positive** so Microsoft clears it for everyone:
+   <https://www.microsoft.com/wdsi/filesubmission>.
+3. **Sign it** (durable fix) — see below.
 
 ## Continuous build & releases
 
@@ -81,13 +98,21 @@ artifact; pushing a tag like `v2.1.0` publishes a GitHub Release with the exe at
 ### Code signing (optional)
 
 The exe is unsigned by default, so SmartScreen / some corporate antivirus may warn on first
-run. To sign locally:
+run. Where to get a certificate:
+
+- **Azure Trusted Signing** — Microsoft's service, ~$10/month, real Authenticode, CI-friendly.
+- **SignPath.io Foundation** — free code signing for open-source projects.
+- **Certum Open Source** — cheap OSS cert (USB token).
+- **Commercial OV/EV** (Sectigo, DigiCert, GlobalSign, SSL.com) — ~$100–700/yr; **EV** gives
+  near-instant SmartScreen reputation. (Self-signed certs do **not** help.)
+
+To sign locally:
 
 ```powershell
 signtool sign /f your-cert.pfx /p PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 bin\LoadView.exe
 ```
 
-CI will sign automatically if you add repo secrets `SIGN_PFX_BASE64` (base64 of your `.pfx`)
+CI signs automatically if you add repo secrets `SIGN_PFX_BASE64` (base64 of your `.pfx`)
 and `SIGN_PFX_PASSWORD`; otherwise that step is skipped.
 
 ## Sections (default order, all reorderable & hideable)

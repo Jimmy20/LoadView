@@ -4,11 +4,17 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.3.0";
+        public const string Version = "2.4.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.4.0",
+            "  - Start with Windows now uses a Startup shortcut (avoids the Defender flag)",
+            "  - Embedded app icon (same as tray); tray click brings the overlay to front",
+            "  - Remembers window position per screen resolution",
+            "  - Configurable LAN / WAN IP refresh intervals; version metadata in the exe",
+            "",
             "2.3.0",
             "  - Separate download/upload colors (default green/red) for net graph + totals",
             "  - Net totals text size; centered LAN/WAN; section titles a uniform size",

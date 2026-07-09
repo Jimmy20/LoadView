@@ -43,6 +43,9 @@ namespace LoadView
         public int DriveRowHeight = 30;
         public List<string> Order = new List<string>(AllSections);
 
+        // Remembered window position per display signature (resolution/layout) -> {x,y}.
+        public Dictionary<string, int[]> Positions = new Dictionary<string, int[]>();
+
         // clock / date / weekday
         public bool ShowSeconds = true;
         public float ClockSize = 20f;
@@ -66,6 +69,8 @@ namespace LoadView
         // network
         public bool NetUnitBytes = true;       // true: MB/s & kB/s ; false: Mbps & Kbps
         public bool ExternalIpEnabled = true;
+        public int IpLanRefreshSec = 10;
+        public int IpWanRefreshSec = 600;
 
         // per-graph accent colors
         public Color CpuColor = Color.FromArgb(0x4F, 0x8C, 0xFF);
@@ -103,7 +108,23 @@ namespace LoadView
         {
             Settings s = (Settings)MemberwiseClone();
             s.Order = new List<string>(Order); // deep-copy the mutable list
+            s.Positions = new Dictionary<string, int[]>();
+            foreach (KeyValuePair<string, int[]> e in Positions)
+                s.Positions[e.Key] = new int[] { e.Value[0], e.Value[1] };
             return s;
+        }
+
+        public bool TryGetPos(string sig, out int x, out int y)
+        {
+            int[] v;
+            if (sig != null && Positions.TryGetValue(sig, out v) && v != null && v.Length == 2)
+            { x = v[0]; y = v[1]; return true; }
+            x = 0; y = 0; return false;
+        }
+
+        public void SetPos(string sig, int x, int y)
+        {
+            if (!string.IsNullOrEmpty(sig)) Positions[sig] = new int[] { x, y };
         }
 
         public bool GetShow(string key)
@@ -258,9 +279,24 @@ namespace LoadView
             s.Locked = GetBool(kv, "locked", s.Locked);
             s.RefreshMs = GetInt(kv, "refreshms", s.RefreshMs);
             s.DebugLog = GetBool(kv, "debuglog", s.DebugLog);
+            s.IpLanRefreshSec = GetInt(kv, "iplanrefreshsec", s.IpLanRefreshSec);
+            s.IpWanRefreshSec = GetInt(kv, "ipwanrefreshsec", s.IpWanRefreshSec);
 
             foreach (string key in AllSections)
                 s.SetShow(key, GetBool(kv, "show_" + key, s.GetShow(key)));
+
+            // Remembered positions: keys like "pos.<sig>=x,y"
+            foreach (KeyValuePair<string, string> e in kv)
+            {
+                if (!e.Key.StartsWith("pos.")) continue;
+                string sig = e.Key.Substring(4);
+                string[] xy = e.Value.Split(',');
+                int px, py;
+                if (xy.Length == 2 &&
+                    int.TryParse(xy[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out px) &&
+                    int.TryParse(xy[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out py))
+                    s.Positions[sig] = new int[] { px, py };
+            }
 
             return s;
         }
@@ -332,9 +368,17 @@ namespace LoadView
                 l.Add("locked=" + B(Locked));
                 l.Add("refreshms=" + RefreshMs.ToString(CultureInfo.InvariantCulture));
                 l.Add("debuglog=" + B(DebugLog));
+                l.Add("iplanrefreshsec=" + IpLanRefreshSec.ToString(CultureInfo.InvariantCulture));
+                l.Add("ipwanrefreshsec=" + IpWanRefreshSec.ToString(CultureInfo.InvariantCulture));
 
                 foreach (string key in AllSections)
                     l.Add("show_" + key + "=" + B(GetShow(key)));
+
+                if (includePosition)
+                    foreach (KeyValuePair<string, int[]> e in Positions)
+                        l.Add("pos." + e.Key + "=" +
+                              e.Value[0].ToString(CultureInfo.InvariantCulture) + "," +
+                              e.Value[1].ToString(CultureInfo.InvariantCulture));
 
                 File.WriteAllLines(path, l.ToArray());
             }
