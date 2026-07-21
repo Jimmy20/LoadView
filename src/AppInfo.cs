@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.6.0";
+        public const string Version = "2.7.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.7.0",
+            "  - Optional accurate CPU temperature via a helper driver (off by default):",
+            "    downloaded only when enabled, runs elevated, reports the true core temp;",
+            "    the default app stays a driver-free, no-admin single exe",
+            "",
             "2.6.0",
             "  - GPU temperature now works on NVIDIA, AMD and Intel (user-mode, no driver),",
             "    across all GPUs (takes the hottest); no admin required",

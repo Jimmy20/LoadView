@@ -36,7 +36,7 @@ namespace LoadView
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
             _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog,
-            _tempF, _showCpuTemp, _showGpuTemp;
+            _tempF, _showCpuTemp, _showGpuTemp, _accurateDriver;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
@@ -260,6 +260,13 @@ namespace LoadView
             Hint("CPU temperature uses the ACPI sensor your PC exposes — many laptops");
             Hint("show none. GPU temperature works on NVIDIA / AMD / Intel where the");
             Hint("driver reports it (very old Intel iGPUs may not).");
+
+            _y += 10;
+            _accurateDriver = AddCheck("Accurate CPU temp (driver)", _working.AccurateCpuTempDriver,
+                "Reads the true CPU core temperature via a helper driver (LibreHardwareMonitor), "
+                + "downloaded on first enable. Needs admin (UAC). Off = no driver, no download.");
+            Hint("Optional: downloads a helper driver and asks for admin (UAC) to read");
+            Hint("the real CPU core temperature. Leave off to stay fully driver-free.");
         }
 
         private void BuildBehavior()
@@ -430,6 +437,7 @@ namespace LoadView
             _working.ShowCpuTemp = _showCpuTemp.Checked;
             _working.ShowGpuTemp = _showGpuTemp.Checked;
             _working.TempHotC = (double)_tempHot.Value;
+            _working.AccurateCpuTempDriver = _accurateDriver.Checked;
 
             _working.Opacity = _opacity.Value / 100.0;
             _working.AlwaysOnTop = _top.Checked;

@@ -27,6 +27,8 @@ $cscArgs = @(
     '/r:System.Drawing.dll'
     '/r:System.Windows.Forms.dll'
     '/r:System.Management.dll'
+    '/r:System.IO.Compression.dll'          # unzip the optional temp-driver download
+    '/r:System.IO.Compression.FileSystem.dll'
 )
 if (Test-Path $icon) { $cscArgs += "/win32icon:$icon" }
 $cscArgs += $sources

@@ -19,6 +19,11 @@ namespace LoadView
         [STAThread]
         private static void Main()
         {
+            // Elevated CPU-temperature driver helper (opt-in). Runs headless, no message loop,
+            // and does not take the overlay's single-instance mutex.
+            string[] argv = Environment.GetCommandLineArgs();
+            if (argv.Length > 1 && argv[1] == "--temp-helper") { DriverTempHelper.Run(argv); return; }
+
             bool createdNew;
             _instanceMutex = new Mutex(true, @"Local\LoadView_SingleInstance", out createdNew);
             if (!createdNew) return; // another LoadView is already running
