@@ -147,6 +147,8 @@ and is intentionally not used here to keep the app a portable, no-install single
 
 - Metrics refresh once per second; drives, top processes and IPs are sampled on background
   threads so a slow disk/share or web lookup never stalls the overlay.
+- After resuming from sleep/hibernation the rate metrics (CPU/disk/network) briefly hold their
+  last value while the performance counters re-baseline — this avoids a false 100% CPU spike.
 - Disk and network values are aggregated across all physical disks / real network
   adapters (loopback and tunnel pseudo-interfaces are excluded).
 - The **external IP** is fetched periodically from a public service (`api.ipify.org` over

@@ -48,6 +48,12 @@ namespace LoadView
         private readonly IntPtr _thermal;
         private readonly TempProvider _temps;
 
+        // Refresh interval (set by the form) — used to size the sleep/resume gap threshold.
+        public int IntervalMs = 1000;
+        private DateTime _lastSampleUtc = DateTime.MinValue;
+        private int _settleTicks;
+        private MetricsSnapshot _last;
+
         public MetricsSampler()
         {
             _q = new PdhQuery();
@@ -87,6 +93,13 @@ namespace LoadView
 
         public MetricsSnapshot Sample()
         {
+            DateTime now = DateTime.UtcNow;
+            double gap = (_lastSampleUtc == DateTime.MinValue) ? 0 : (now - _lastSampleUtc).TotalSeconds;
+            _lastSampleUtc = now;
+            // A gap this large only happens on sleep/hibernation/long suspension (never at the
+            // <=10 s refresh) — the first post-resume rate samples are bogus, so settle a few ticks.
+            if (gap > Math.Max(15.0, IntervalMs / 1000.0 * 5.0)) _settleTicks = 3;
+
             _q.Collect();
             MetricsSnapshot s = new MetricsSnapshot();
 
@@ -120,6 +133,23 @@ namespace LoadView
 
             double gpuTemp;
             if (_temps.TryGetGpu(out gpuTemp)) { s.GpuTempValid = true; s.GpuTempC = gpuTemp; }
+
+            // Post-resume settle: the rate counters (esp. CPU % Processor Utility) read a false
+            // ~100% on the first samples after a long gap. Hold the last good rate values for a
+            // few ticks while the PDH baseline re-establishes; RAM + temperatures stay live.
+            if (_settleTicks > 0)
+            {
+                _settleTicks--;
+                s.CpuValid = _last.CpuValid; s.CpuPercent = _last.CpuPercent;
+                s.GpuValid = _last.GpuValid; s.GpuPercent = _last.GpuPercent;
+                s.DiskValid = _last.DiskValid; s.DiskPercent = _last.DiskPercent;
+                s.DiskReadBps = _last.DiskReadBps; s.DiskWriteBps = _last.DiskWriteBps;
+                s.NetValid = _last.NetValid; s.NetDownBps = _last.NetDownBps; s.NetUpBps = _last.NetUpBps;
+            }
+            else
+            {
+                _last = s;
+            }
 
             return s;
         }

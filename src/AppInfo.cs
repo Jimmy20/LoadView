@@ -4,11 +4,14 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.5.0";
+        public const string Version = "2.5.1";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.5.1",
+            "  - Fix false 100% CPU after waking from sleep/hibernation",
+            "",
             "2.5.0",
             "  - Redesigned Settings: category sidebar, aligned rows, tooltips, live preview",
             "  - Right-click menu adds Always on top (under Lock)",
