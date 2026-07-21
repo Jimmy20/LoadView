@@ -72,6 +72,13 @@ namespace LoadView
         public int IpLanRefreshSec = 10;
         public int IpWanRefreshSec = 600;
 
+        // temperatures
+        public bool TempFahrenheit = false;        // false: show °C, true: show °F
+        public bool ShowCpuTemp = true;            // append CPU temp to the CPU graph readout
+        public bool ShowGpuTemp = true;            // append GPU temp to the GPU graph readout
+        public double TempHotC = 0;                // temp >= this many °C shows in red; 0 = off
+        public bool AccurateCpuTempDriver = false; // opt-in: kernel-driver CPU temp (downloaded on enable)
+
         // per-graph accent colors
         public Color CpuColor = Color.FromArgb(0x4F, 0x8C, 0xFF);
         public Color GpuColor = Color.FromArgb(0x36, 0xC7, 0x9B);
@@ -256,6 +263,12 @@ namespace LoadView
             s.NetUnitBytes = GetBool(kv, "netunitbytes", s.NetUnitBytes);
             s.ExternalIpEnabled = GetBool(kv, "externalip", s.ExternalIpEnabled);
 
+            s.TempFahrenheit = GetBool(kv, "tempfahrenheit", s.TempFahrenheit);
+            s.ShowCpuTemp = GetBool(kv, "showcputemp", s.ShowCpuTemp);
+            s.ShowGpuTemp = GetBool(kv, "showgputemp", s.ShowGpuTemp);
+            s.TempHotC = GetDouble(kv, "temphotc", s.TempHotC);
+            s.AccurateCpuTempDriver = GetBool(kv, "accuratecputempdriver", s.AccurateCpuTempDriver);
+
             s.CpuColor = GetColor(kv, "cpucolor", s.CpuColor);
             s.GpuColor = GetColor(kv, "gpucolor", s.GpuColor);
             s.MemColor = GetColor(kv, "memcolor", s.MemColor);
@@ -344,6 +357,12 @@ namespace LoadView
 
                 l.Add("netunitbytes=" + B(NetUnitBytes));
                 l.Add("externalip=" + B(ExternalIpEnabled));
+
+                l.Add("tempfahrenheit=" + B(TempFahrenheit));
+                l.Add("showcputemp=" + B(ShowCpuTemp));
+                l.Add("showgputemp=" + B(ShowGpuTemp));
+                l.Add("temphotc=" + D(TempHotC));
+                l.Add("accuratecputempdriver=" + B(AccurateCpuTempDriver));
 
                 l.Add("cpucolor=" + Hex(CpuColor));
                 l.Add("gpucolor=" + Hex(GpuColor));

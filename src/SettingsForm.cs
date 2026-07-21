@@ -34,8 +34,9 @@ namespace LoadView
 
         // controls
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
-            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec;
-        private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog;
+            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot;
+        private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog,
+            _tempF, _showCpuTemp, _showGpuTemp;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
@@ -106,6 +107,7 @@ namespace LoadView
             AddPage("Clock & date", BuildClockDate);
             AddPage("Drives & lists", BuildDrivesLists);
             AddPage("Network", BuildNetwork);
+            AddPage("Temperatures", BuildTemperatures);
             AddPage("Behavior", BuildBehavior);
             AddPage("Defaults", BuildDefaults);
         }
@@ -245,6 +247,19 @@ namespace LoadView
             _netTotalsSize = AddNum("Net totals size (pt)", 7, 28, (int)_working.NetTotalsSize, null);
             _ipLanSec = AddNum("LAN IP refresh (s)", 2, 3600, _working.IpLanRefreshSec, "How often the local IP is re-read.");
             _ipWanSec = AddNum("WAN IP refresh (s)", 30, 86400, _working.IpWanRefreshSec, "How often the public IP is looked up.");
+        }
+
+        private void BuildTemperatures()
+        {
+            _tempF = AddCheck("Show in °F", _working.TempFahrenheit, "Show temperatures in Fahrenheit instead of Celsius.");
+            _showCpuTemp = AddCheck("Show CPU temperature", _working.ShowCpuTemp, "Append the CPU temperature to the CPU graph when available.");
+            _showGpuTemp = AddCheck("Show GPU temperature", _working.ShowGpuTemp, "Append the GPU temperature to the GPU graph when available.");
+            _tempHot = AddNum("Hot threshold (°C)", 0, 120, (int)_working.TempHotC,
+                "Temperature at or above this shows in red. 0 = off. Always in °C.");
+            _y += 8;
+            Hint("CPU temperature uses the ACPI sensor your PC exposes — many laptops");
+            Hint("show none. GPU temperature works on NVIDIA / AMD / Intel where the");
+            Hint("driver reports it (very old Intel iGPUs may not).");
         }
 
         private void BuildBehavior()
@@ -410,6 +425,11 @@ namespace LoadView
             _working.DriveLabelBold = _driveLblBold.Checked;
             _working.ListSize = (float)_listSize.Value;
             _working.IpSize = (float)_ipSize.Value;
+
+            _working.TempFahrenheit = _tempF.Checked;
+            _working.ShowCpuTemp = _showCpuTemp.Checked;
+            _working.ShowGpuTemp = _showGpuTemp.Checked;
+            _working.TempHotC = (double)_tempHot.Value;
 
             _working.Opacity = _opacity.Value / 100.0;
             _working.AlwaysOnTop = _top.Checked;

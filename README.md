@@ -120,7 +120,7 @@ and `SIGN_PFX_PASSWORD`; otherwise that step is skipped.
 |-------------|-----------------------------------------------------------------------|
 | Clock       | current time (`HH:mm:ss` or `HH:mm`)                                   |
 | CPU         | % utilization (`· 52°C` when a temp is available)                     |
-| GPU         | % of busiest GPU (`· 61°C` on NVIDIA GPUs)                            |
+| GPU         | % of busiest GPU (`· 61°C` on NVIDIA / AMD / Intel)                   |
 | MEM         | % physical RAM, e.g. `20.3/31.7 GB (64%)`                             |
 | DISK        | % active time across **all** disks + `R / W MB/s`                    |
 | NET         | down + up graph, in MB/s or Mbps                                      |
@@ -136,12 +136,21 @@ rest keep working.
 
 ### Temperatures
 
-Temperatures are **best-effort and dependency-free**: CPU via the ACPI thermal zone
-(WMI), GPU via **NVIDIA NVML** (`nvml.dll`, installed with the NVIDIA driver). Many
-machines (most Intel laptops included) expose no temperature through these safe APIs —
-those simply omit the temp and everything else works. Reliable temps on all hardware would
-require a kernel-level driver (e.g. LibreHardwareMonitor), which needs administrator rights
-and is intentionally not used here to keep the app a portable, no-install single exe.
+Temperatures are **best-effort** and shown next to the CPU / GPU graphs (e.g. `47% · 62°C`).
+Under **Settings → Temperatures** you can switch °C/°F, hide either temperature, and set a red
+**hot** threshold.
+
+- **GPU** is read in **user-mode from the GPU vendor's own driver library** — NVIDIA (NVML),
+  AMD (ADL) and Intel (IGCL) — so it works across vendors with **no admin and no extra files**
+  (nothing is bundled; the libraries ship with the graphics driver). The hottest GPU is shown.
+  Very old Intel iGPUs expose no sensor and simply stay blank.
+- **CPU** uses the ACPI thermal zone (WMI). Many machines — most Intel laptops included — expose
+  nothing there, or report a chipset zone rather than the CPU die, so the CPU temperature is
+  often blank or approximate. Reading the true per-core temperature requires a **kernel driver**,
+  which LoadView keeps as an **opt-in** feature (off by default) so the default stays a portable,
+  no-install, no-admin single exe.
+
+If a temperature isn't available it is simply omitted and everything else keeps working.
 
 ## Notes
 

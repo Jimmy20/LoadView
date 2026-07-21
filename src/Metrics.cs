@@ -92,6 +92,9 @@ namespace LoadView
             _q.Collect();
         }
 
+        // Push an accurate CPU temperature from the elevated driver helper (Phase 2).
+        public void SetCpuTempOverride(double celsius) { if (_temps != null) _temps.SetExternalCpu(celsius); }
+
         public MetricsSnapshot Sample()
         {
             DateTime now = DateTime.UtcNow;
@@ -125,10 +128,13 @@ namespace LoadView
                 s.RamPercent = 100.0 * s.RamUsedBytes / m.ullTotalPhys;
             }
 
-            // Temperatures (best-effort): prefer the ACPI thermal-zone perf counter, then
-            // fall back to the background WMI / nvidia-smi provider.
+            // Temperatures (best-effort). CPU order: the accurate driver-helper value (if the
+            // user enabled it) wins, then the ACPI thermal-zone perf counter, then the background
+            // WMI provider.
             double cpuTemp;
-            if (_thermal != IntPtr.Zero && TryMaxKelvinToC(_q.ReadArray(_thermal), out cpuTemp))
+            if (_temps.TryGetCpuHelper(out cpuTemp))
+            { s.CpuTempValid = true; s.CpuTempC = cpuTemp; }
+            else if (_thermal != IntPtr.Zero && TryMaxKelvinToC(_q.ReadArray(_thermal), out cpuTemp))
             { s.CpuTempValid = true; s.CpuTempC = cpuTemp; }
             else { double c; if (_temps.TryGetCpu(out c)) { s.CpuTempValid = true; s.CpuTempC = c; } }
 

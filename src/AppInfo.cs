@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.5.2";
+        public const string Version = "2.6.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.6.0",
+            "  - GPU temperature now works on NVIDIA, AMD and Intel (user-mode, no driver),",
+            "    across all GPUs (takes the hottest); no admin required",
+            "  - Temperature settings: °C/°F, show/hide CPU & GPU temp, red 'hot' threshold",
+            "",
             "2.5.2",
             "  - CPU % now matches Task Manager (uses % Processor Time, not the",
             "    frequency-scaled % Processor Utility that overshot on turbo CPUs)",

@@ -21,6 +21,10 @@ namespace LoadView
 
         public string Title = "";
         public string ValueText = "";
+        // Optional right-aligned suffix drawn to the right of ValueText in its own colour
+        // (used for the temperature, so it can turn red independently of the % readout).
+        public string ValueSuffix = "";
+        public Color ValueSuffixColor = NormalValueColor;
         public Color Accent = Color.FromArgb(0x4F, 0x8C, 0xFF);
         public Color Accent2 = Color.FromArgb(0x55, 0xD6, 0xFF);
         public bool Percent = true;  // true: 0..100; false: auto-scaled rate
@@ -32,7 +36,8 @@ namespace LoadView
 
         private static readonly Color PanelBack = Color.FromArgb(26, 26, 30);
         private static readonly Color GridColor = Color.FromArgb(45, 45, 52);
-        private static readonly Color ValueColor = Color.FromArgb(228, 228, 233);
+        public static readonly Color NormalValueColor = Color.FromArgb(228, 228, 233);
+        private static readonly Color ValueColor = NormalValueColor;
         private static readonly Color DimColor = Color.FromArgb(150, 150, 158);
 
         public GraphPanel(bool twoSeries)
@@ -91,8 +96,19 @@ namespace LoadView
 
             TextRenderer.DrawText(g, Title, TitleFont(), new Point(pad, pad),
                 Available ? seriesA : DimColor, TextFormatFlags.NoPadding);
+
+            // Value readout, right-aligned; an optional suffix (temperature) is drawn to its
+            // right in its own colour so it can go red without recolouring the % value.
+            int right = r.Right - pad;
+            if (!string.IsNullOrEmpty(ValueSuffix))
+            {
+                Size ssz = TextRenderer.MeasureText(g, ValueSuffix, Font);
+                TextRenderer.DrawText(g, ValueSuffix, Font, new Point(right - ssz.Width, pad),
+                    ValueSuffixColor, TextFormatFlags.NoPadding);
+                right -= ssz.Width;
+            }
             Size vsz = TextRenderer.MeasureText(g, ValueText, Font);
-            TextRenderer.DrawText(g, ValueText, Font, new Point(r.Right - pad - vsz.Width, pad),
+            TextRenderer.DrawText(g, ValueText, Font, new Point(right - vsz.Width, pad),
                 ValueColor, TextFormatFlags.NoPadding);
 
             Rectangle gr = new Rectangle(pad, pad + headerH, r.Width - 2 * pad, r.Height - headerH - 2 * pad);
