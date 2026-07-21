@@ -612,14 +612,14 @@ namespace LoadView
             _clock.TimeText = now.ToString(_settings.ShowSeconds ? "HH:mm:ss" : "HH:mm", CultureInfo.CurrentCulture);
             _clock.Invalidate();
 
-            string cpuTemp = s.CpuTempValid ? " · " + Temp(s.CpuTempC) : "";
             _cpu.Available = s.CpuValid;
-            _cpu.ValueText = (s.CpuValid ? Pct(s.CpuPercent) : "n/a") + cpuTemp;
+            _cpu.ValueText = s.CpuValid ? Pct(s.CpuPercent) : "n/a";
+            SetTempReadout(_cpu, s.CpuTempValid && _settings.ShowCpuTemp, s.CpuTempC);
             if (s.CpuValid) _cpu.Add(s.CpuPercent); else _cpu.Invalidate();
 
-            string gpuTemp = s.GpuTempValid ? " · " + Temp(s.GpuTempC) : "";
             _gpu.Available = s.GpuValid;
-            _gpu.ValueText = (s.GpuValid ? Pct(s.GpuPercent) : "n/a") + gpuTemp;
+            _gpu.ValueText = s.GpuValid ? Pct(s.GpuPercent) : "n/a";
+            SetTempReadout(_gpu, s.GpuTempValid && _settings.ShowGpuTemp, s.GpuTempC);
             if (s.GpuValid) _gpu.Add(s.GpuPercent); else _gpu.Invalidate();
 
             _ram.Available = s.RamValid;
@@ -703,7 +703,30 @@ namespace LoadView
         }
 
         private static string Pct(double v) { return string.Format(CultureInfo.InvariantCulture, "{0:0}%", v); }
-        private static string Temp(double c) { return string.Format(CultureInfo.InvariantCulture, "{0:0}°C", c); }
+        private static readonly Color TempHotColor = Color.FromArgb(0xE0, 0x5A, 0x5A);
+
+        // Format a Celsius reading in the configured unit.
+        private string Temp(double c)
+        {
+            if (_settings.TempFahrenheit)
+                return string.Format(CultureInfo.InvariantCulture, "{0:0}°F", c * 9.0 / 5.0 + 32.0);
+            return string.Format(CultureInfo.InvariantCulture, "{0:0}°C", c);
+        }
+
+        // Set (or clear) the temperature suffix on a graph, red when at/above the hot threshold.
+        private void SetTempReadout(GraphPanel p, bool show, double tempC)
+        {
+            if (show)
+            {
+                p.ValueSuffix = " · " + Temp(tempC);
+                bool hot = _settings.TempHotC > 0 && tempC >= _settings.TempHotC;
+                p.ValueSuffixColor = hot ? TempHotColor : GraphPanel.NormalValueColor;
+            }
+            else
+            {
+                p.ValueSuffix = "";
+            }
+        }
 
         private static string MBnum(double bytesPerSec)
         {
