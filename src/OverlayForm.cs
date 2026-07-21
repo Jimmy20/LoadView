@@ -415,6 +415,45 @@ namespace LoadView
 
             if (_lockItem != null) _lockItem.Checked = _settings.Locked;
             if (_topItem != null) _topItem.Checked = _settings.AlwaysOnTop;
+
+            UpdateHelper();
+        }
+
+        // ---------- accurate CPU temp helper (opt-in, elevated) ----------
+
+        private bool _helperStarted;
+
+        // Start/stop the elevated driver helper to match the AccurateCpuTempDriver setting.
+        private void UpdateHelper()
+        {
+            if (_settings.AccurateCpuTempDriver)
+            {
+                if (!_helperStarted)
+                {
+                    _helperStarted = true;   // set first so a declined UAC doesn't re-prompt every tick
+                    TempIpc.WriteHeartbeat(); // let the helper see us immediately
+                    StartHelper();
+                }
+            }
+            else if (_helperStarted)
+            {
+                _helperStarted = false;
+                TempIpc.ClearHeartbeat();     // helper self-exits within a few seconds
+            }
+        }
+
+        private void StartHelper()
+        {
+            try
+            {
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(
+                    Application.ExecutablePath,
+                    "--temp-helper " + System.Diagnostics.Process.GetCurrentProcess().Id);
+                psi.UseShellExecute = true;
+                psi.Verb = "runas";          // elevate (UAC) — required to load the driver
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex) { Log.Write("temp-helper launch (UAC declined?)", ex); }
         }
 
         // ---------- sizing / layout ----------
@@ -565,6 +604,7 @@ namespace LoadView
         {
             _timer.Stop();
             SaveSettings();
+            if (_helperStarted) TempIpc.ClearHeartbeat(); // let the elevated helper exit
             if (_tray != null) _tray.Visible = false;
             base.OnFormClosing(e);
         }
@@ -606,6 +646,15 @@ namespace LoadView
 
         private void OnTick(object sender, EventArgs e)
         {
+            // Accurate CPU temp (opt-in): keep the helper alive and feed its reading to the sampler.
+            if (_settings.AccurateCpuTempDriver)
+            {
+                TempIpc.WriteHeartbeat();
+                double hc; DateTime hw;
+                if (TempIpc.TryReadCpuTemp(out hc, out hw) && (DateTime.UtcNow - hw).TotalSeconds < 10)
+                    _sampler.SetCpuTempOverride(hc);
+            }
+
             MetricsSnapshot s = _sampler.Sample();
             DateTime now = DateTime.Now;
 
