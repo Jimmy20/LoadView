@@ -4,11 +4,15 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.5.1";
+        public const string Version = "2.5.2";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.5.2",
+            "  - CPU % now matches Task Manager (uses % Processor Time, not the",
+            "    frequency-scaled % Processor Utility that overshot on turbo CPUs)",
+            "",
             "2.5.1",
             "  - Fix false 100% CPU after waking from sleep/hibernation",
             "",

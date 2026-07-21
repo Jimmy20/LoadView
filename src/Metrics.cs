@@ -58,9 +58,10 @@ namespace LoadView
         {
             _q = new PdhQuery();
 
-            // "% Processor Utility" matches Task Manager (accounts for turbo); fall back
-            // to the classic "% Processor Time" if the newer counter isn't present.
-            _cpu = _q.AddCounter(@"\Processor Information(_Total)\% Processor Utility");
+            // "% Processor Time" is the actual busy-time utilization Task Manager's graph shows.
+            // (Avoid "% Processor Utility": it scales by clock speed, so on turbo-capable CPUs it
+            // reads far higher than Task Manager.) Fall back to the plain Processor category.
+            _cpu = _q.AddCounter(@"\Processor Information(_Total)\% Processor Time");
             if (_cpu == IntPtr.Zero)
                 _cpu = _q.AddCounter(@"\Processor(_Total)\% Processor Time");
 
@@ -134,7 +135,7 @@ namespace LoadView
             double gpuTemp;
             if (_temps.TryGetGpu(out gpuTemp)) { s.GpuTempValid = true; s.GpuTempC = gpuTemp; }
 
-            // Post-resume settle: the rate counters (esp. CPU % Processor Utility) read a false
+            // Post-resume settle: the rate counters (esp. CPU % Processor Time) read a false
             // ~100% on the first samples after a long gap. Hold the last good rate values for a
             // few ticks while the PDH baseline re-establishes; RAM + temperatures stay live.
             if (_settleTicks > 0)
