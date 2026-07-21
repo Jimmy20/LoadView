@@ -365,6 +365,7 @@ namespace LoadView
             int ms = _settings.RefreshMs;
             if (ms < 200) ms = 200; else if (ms > 10000) ms = 10000;
             if (_timer != null) _timer.Interval = ms;
+            if (_sampler != null) _sampler.IntervalMs = ms;
 
             _clock.SizePt = _settings.ClockSize;
             _clock.Ink = _settings.ClockColor;
