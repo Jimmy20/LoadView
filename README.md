@@ -77,16 +77,36 @@ key; see *Antivirus / Defender* below.)
 
 ## Antivirus / Defender
 
-An unsigned app that writes itself into `HKCU\…\Run` can trip Microsoft Defender's behavioral
-heuristic **`Behavior:Win32/Persistence.A!ml`** and get quarantined. LoadView therefore uses a
-Startup-folder shortcut (above) instead of the Run key, and ships proper version metadata in
-the exe. If Defender still flags it:
+LoadView is a single **unsigned** exe, so Microsoft Defender's machine-learning heuristics may
+flag a freshly-downloaded build as a **false positive** — most commonly:
 
-1. **Restore it**: Windows Security → *Virus & threat protection* → *Protection history* →
-   allow/restore the item; optionally add an exclusion for the folder while testing.
-2. **Report the false positive** so Microsoft clears it for everyone:
-   <https://www.microsoft.com/wdsi/filesubmission>.
-3. **Sign it** (durable fix) — see below.
+- **`Trojan:Win32/Wacatac.B!ml`** — a *generic* ML "catch-all" bucket for unknown, low-reputation
+  executables. The `!ml` suffix means it's a heuristic guess, **not** a signature match, and the
+  Microsoft encyclopedia page for it is generic family boilerplate, not an analysis of this file.
+- **`Behavior:Win32/Persistence.A!ml`** — an older behavioral heuristic tripped by writing to
+  `HKCU\…\Run`. LoadView avoids this by using a Startup-folder shortcut (above) instead.
+
+Why it happens: the exe is **unsigned** and **newly released** (near-zero download reputation), and
+the *optional* accurate-CPU-temp feature contains "download a file, then run an elevated helper"
+code — benign and **off by default**, but a pattern ML models are trained on. None of this is
+malware; the binary is built by GitHub Actions from the public source in this repo.
+
+**Verify integrity:** compare your download's hash with the release asset —
+`Get-FileHash LoadView.exe -Algorithm SHA256` — or upload it to
+[VirusTotal](https://www.virustotal.com/): only a couple of engines flagging it with generic/`!ml`
+names is the hallmark of a false positive.
+
+If Defender flags it:
+
+1. **Restore / allow it**: Windows Security → *Virus & threat protection* → *Protection history* →
+   allow or restore the item; optionally add a folder exclusion while testing.
+2. **Report the false positive** so Microsoft clears it for everyone (free, usually 1–3 days):
+   <https://www.microsoft.com/wdsi/filesubmission> — submit as *Software developer* →
+   *Incorrectly detected as malware*, include the SHA-256 and a link to this repo.
+3. **Reputation heals it**: as more people download the same build, the ML reputation score rises
+   and the detection typically fades on its own.
+4. **Sign it** (the durable fix) — see below. A signed binary with reputation is trusted; CI signs
+   automatically once the signing secret is set.
 
 ## Continuous build & releases
 
