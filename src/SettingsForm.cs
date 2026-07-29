@@ -263,10 +263,12 @@ namespace LoadView
 
             _y += 10;
             _accurateDriver = AddCheck("Accurate CPU temp (driver)", _working.AccurateCpuTempDriver,
-                "Reads the true CPU core temperature via a helper driver (LibreHardwareMonitor), "
-                + "downloaded on first enable. Needs admin (UAC). Off = no driver, no download.");
-            Hint("Optional: downloads a helper driver and asks for admin (UAC) to read");
-            Hint("the real CPU core temperature. Leave off to stay fully driver-free.");
+                "Reads the true CPU core temperature. On first enable it installs the free, signed "
+                + "PawnIO driver (one UAC prompt) and works even with Windows Memory Integrity on. "
+                + "After that it starts silently — no more prompts. Off = no driver.");
+            Hint("Optional: installs the free, signed PawnIO driver (one admin prompt the");
+            Hint("first time, then silent). Reads the real CPU core temperature and works");
+            Hint("with Memory Integrity on. Leave off to stay fully driver-free.");
         }
 
         private void BuildBehavior()

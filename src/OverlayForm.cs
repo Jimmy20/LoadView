@@ -419,41 +419,71 @@ namespace LoadView
             UpdateHelper();
         }
 
-        // ---------- accurate CPU temp helper (opt-in, elevated) ----------
+        // ---------- accurate CPU temp helper (opt-in, PawnIO + scheduled task) ----------
 
-        private bool _helperStarted;
+        private bool _helperEngaged;      // driver path active this session
+        private bool _setupPrompted;      // asked to install PawnIO this session
+        private bool _pawnReady;          // cached: PawnIO installed + task registered
+        private DateTime _lastReadyCheckUtc = DateTime.MinValue;
+        private DateTime _lastTaskRunUtc = DateTime.MinValue;
 
-        // Start/stop the elevated driver helper to match the AccurateCpuTempDriver setting.
+        // Engage/disengage the driver path to match the AccurateCpuTempDriver setting.
         private void UpdateHelper()
         {
             if (_settings.AccurateCpuTempDriver)
             {
-                if (!_helperStarted)
+                if (!_helperEngaged)
                 {
-                    _helperStarted = true;   // set first so a declined UAC doesn't re-prompt every tick
-                    TempIpc.WriteHeartbeat(); // let the helper see us immediately
-                    StartHelper();
+                    _helperEngaged = true;
+                    TempIpc.WriteHeartbeat();
+                    EngageDriver();
                 }
             }
-            else if (_helperStarted)
+            else if (_helperEngaged)
             {
-                _helperStarted = false;
-                TempIpc.ClearHeartbeat();     // helper self-exits within a few seconds
+                _helperEngaged = false;
+                TempIpc.ClearHeartbeat();   // helper self-exits within a few seconds
             }
         }
 
-        private void StartHelper()
+        private void EngageDriver()
         {
+            _pawnReady = PawnIoSetup.Ready();
+            _lastReadyCheckUtc = DateTime.UtcNow;
+            if (_pawnReady)
+            {
+                PawnIoSetup.RunHelperTask();   // no UAC — runs elevated via the task
+                _lastTaskRunUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                PromptAndSetup();
+            }
+        }
+
+        // One-time, one-UAC setup: install the PawnIO driver + register the helper task.
+        private void PromptAndSetup()
+        {
+            if (_setupPrompted) return;
+            _setupPrompted = true;
+            DialogResult r = MessageBox.Show(this,
+                "To show the real CPU temperature, LoadView needs a small hardware-sensor driver "
+                + "called PawnIO (free, open-source, digitally signed). LoadView will download it "
+                + "from its official source and install it. Windows will ask for administrator "
+                + "permission once; after that it starts silently. It works with Windows Memory "
+                + "Integrity turned on.\r\n\r\nInstall now?",
+                "LoadView — accurate CPU temperature",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (r != DialogResult.Yes) return;
             try
             {
                 System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(
-                    Application.ExecutablePath,
-                    "--temp-helper " + System.Diagnostics.Process.GetCurrentProcess().Id);
+                    Application.ExecutablePath, "--temp-setup");
                 psi.UseShellExecute = true;
-                psi.Verb = "runas";          // elevate (UAC) — required to load the driver
+                psi.Verb = "runas";   // one UAC: installs PawnIO + registers the task
                 System.Diagnostics.Process.Start(psi);
             }
-            catch (Exception ex) { Log.Write("temp-helper launch (UAC declined?)", ex); }
+            catch (Exception ex) { Log.Write("temp-setup launch (UAC declined?)", ex); }
         }
 
         // ---------- sizing / layout ----------
@@ -604,7 +634,7 @@ namespace LoadView
         {
             _timer.Stop();
             SaveSettings();
-            if (_helperStarted) TempIpc.ClearHeartbeat(); // let the elevated helper exit
+            if (_helperEngaged) TempIpc.ClearHeartbeat(); // let the elevated helper exit
             if (_tray != null) _tray.Visible = false;
             base.OnFormClosing(e);
         }
@@ -650,9 +680,23 @@ namespace LoadView
             if (_settings.AccurateCpuTempDriver)
             {
                 TempIpc.WriteHeartbeat();
-                double hc; DateTime hw;
-                if (TempIpc.TryReadCpuTemp(out hc, out hw) && (DateTime.UtcNow - hw).TotalSeconds < 10)
-                    _sampler.SetCpuTempOverride(hc);
+                // While waiting for the one-time setup to finish, re-check readiness every few s.
+                if (!_pawnReady && (DateTime.UtcNow - _lastReadyCheckUtc).TotalSeconds >= 4)
+                {
+                    _pawnReady = PawnIoSetup.Ready();
+                    _lastReadyCheckUtc = DateTime.UtcNow;
+                }
+                if (_pawnReady)
+                {
+                    double hc; DateTime hw;
+                    if (TempIpc.TryReadCpuTemp(out hc, out hw) && (DateTime.UtcNow - hw).TotalSeconds < 10)
+                        _sampler.SetCpuTempOverride(hc);
+                    else if ((DateTime.UtcNow - _lastTaskRunUtc).TotalSeconds >= 15)
+                    {
+                        _lastTaskRunUtc = DateTime.UtcNow;   // (re)start the helper via the task
+                        PawnIoSetup.RunHelperTask();
+                    }
+                }
             }
 
             MetricsSnapshot s = _sampler.Sample();

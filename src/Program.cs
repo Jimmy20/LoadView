@@ -23,6 +23,8 @@ namespace LoadView
             // and does not take the overlay's single-instance mutex.
             string[] argv = Environment.GetCommandLineArgs();
             if (argv.Length > 1 && argv[1] == "--temp-helper") { DriverTempHelper.Run(argv); return; }
+            // One-time elevated setup: install the PawnIO driver + register the helper task.
+            if (argv.Length > 1 && argv[1] == "--temp-setup") { PawnIoSetup.RunSetup(); return; }
 
             bool createdNew;
             _instanceMutex = new Mutex(true, @"Local\LoadView_SingleInstance", out createdNew);

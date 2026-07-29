@@ -4,11 +4,17 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.7.0";
+        public const string Version = "2.8.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.8.0",
+            "  - Accurate CPU temp now works with Windows Memory Integrity (HVCI) on:",
+            "    uses the free, signed PawnIO driver instead of the blocked WinRing0",
+            "  - One-click setup from Settings: installs PawnIO (one UAC) + a scheduled",
+            "    task, so afterwards the temp starts silently with no more UAC prompts",
+            "",
             "2.7.0",
             "  - Optional accurate CPU temperature via a helper driver (off by default):",
             "    downloaded only when enabled, runs elevated, reports the true core temp;",

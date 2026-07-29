@@ -178,19 +178,24 @@ The true per-core CPU temperature lives in the CPU's MSR registers, which can on
 **kernel driver** — there is no user-mode API for it. LoadView keeps this as an **opt-in** so the
 default download stays a portable, no-install, no-admin single exe.
 
-Enable **Settings → Temperatures → "Accurate CPU temp (driver)"** to turn it on. When enabled:
+Enable **Settings → Temperatures → "Accurate CPU temp (driver)"** to turn it on. On first enable
+LoadView offers to set it up; you get **one UAC prompt**, and then:
 
-- LoadView **downloads** LibreHardwareMonitor (pinned version, verified by SHA-256) into
-  `%APPDATA%\LoadView\lib` — only on first enable, so the shipped `LoadView.exe` never contains any
-  driver bytes.
-- A small **elevated helper** (the same exe with `--temp-helper`) loads that library, reads the CPU
-  package temperature through its driver, and hands it back to the overlay. You'll get **one UAC
-  prompt** when it starts; the overlay itself keeps running unelevated.
-- On some Windows 11 PCs, **Memory Integrity (HVCI)** blocks the driver. If so, LoadView just falls
-  back to the ACPI/blank reading — nothing breaks. Diagnostics are written to
-  `%APPDATA%\LoadView\helper.log`.
+- It installs **[PawnIO](https://pawnio.eu/)** — a free, open-source, **digitally-signed** sensor
+  driver that is **HVCI-compatible**, so accurate CPU temperature works **even with Windows Memory
+  Integrity turned on** (unlike the old WinRing0 driver, which HVCI blocks). PawnIO is downloaded
+  from its official source and its signature is verified before running; nothing is bundled in
+  `LoadView.exe`.
+- It registers a small **Task Scheduler** task so the elevated reader can start **silently from
+  then on — no more UAC prompts** on later launches. The overlay itself keeps running unelevated;
+  only the tiny reader is elevated (via the task).
+- The reader downloads LibreHardwareMonitor (verified by SHA-256, into `%APPDATA%\LoadView\lib`),
+  reads the CPU package temperature through PawnIO, and hands it to the overlay.
+- If anything fails (offline, or you decline the prompts), LoadView just falls back to the ACPI /
+  blank reading — nothing breaks. Diagnostics: `%APPDATA%\LoadView\helper.log`.
 
-Leave it **off** (the default) to stay completely driver-free and admin-free.
+Leave it **off** (the default) to stay completely driver-free and admin-free. This option only
+affects **CPU** temperature; GPU temperature never needs a driver.
 
 ## Notes
 
