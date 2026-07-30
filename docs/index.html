@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoadView — always-on-top Windows system monitor overlay</title>
+<meta name="description" content="Lightweight always-on-top Windows overlay with live CPU, GPU, RAM, disk and network graphs, temperatures and per-drive usage. Single portable exe, no install.">
+<link rel="canonical" href="https://github.com/Jimmy20/LoadView">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LoadView — Windows system monitor overlay">
+<meta property="og:description" content="Task Manager's performance graphs, pinned to the corner of your screen. CPU/GPU/RAM/disk/network + temperatures, in a single portable exe.">
+<meta property="og:image" content="https://raw.githubusercontent.com/Jimmy20/LoadView/main/docs/Screenshot.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{--bg:#0e0e11;--panel:#1a1a1e;--ink:#e8e8ed;--dim:#9a9aa2;--accent:#4f8cff;--green:#57d06f;--border:#2a2a31}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Segoe UI",system-ui,Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:48px 20px}
+  .hero{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+  .hero .text{flex:1 1 380px;min-width:300px}
+  .hero .shot{flex:0 0 auto;width:100%;text-align:center}
+  @media(min-width:760px){.hero .shot{width:auto}}
+  h1{font-size:44px;margin:0 0 6px;letter-spacing:-1px}
+  .tag{color:var(--dim);font-size:18px;margin:0 0 22px}
+  .shot img{width:230px;max-width:62vw;border:1px solid var(--border);border-radius:10px}
+  .btn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;padding:12px 22px;border-radius:8px;margin:6px 0}
+  .btn:hover{text-decoration:none;filter:brightness(1.08)}
+  .meta{color:var(--dim);font-size:14px;margin-top:10px}
+  .badges{margin:18px 0}
+  .badge{display:inline-block;background:var(--panel);border:1px solid var(--border);color:var(--green);font-size:13px;padding:3px 10px;border-radius:20px;margin:2px 4px 2px 0}
+  ul.feat{list-style:none;padding:0;margin:34px 0 0}
+  ul.feat li{padding:12px 0 12px 28px;border-top:1px solid var(--border);position:relative}
+  ul.feat li:before{content:"\25B8";color:var(--accent);position:absolute;left:4px}
+  code{background:var(--panel);padding:2px 6px;border-radius:5px;font-size:14px}
+  footer{margin-top:44px;padding-top:22px;border-top:1px solid var(--border);color:var(--dim);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="text">
+      <h1>LoadView</h1>
+      <p class="tag">Task Manager's performance graphs, pinned to the corner of your screen.</p>
+      <p>A lightweight, always-on-top Windows overlay showing live <strong>CPU, GPU, RAM, disk and
+      network</strong> graphs &mdash; plus temperatures, per-drive usage, top processes, a clock and
+      your IP &mdash; as a <strong>single portable <code>.exe</code></strong>. No install, no dependencies.</p>
+      <div class="badges">
+        <span class="badge">Windows 10 / 11</span>
+        <span class="badge">Free &amp; open-source (MIT)</span>
+        <span class="badge">No install</span>
+        <span class="badge">Works with Memory Integrity</span>
+      </div>
+      <p><a class="btn" href="https://github.com/Jimmy20/LoadView/releases/latest">&#x2B07; Download LoadView</a></p>
+      <p class="meta">A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight monitoring suites.</p>
+    </div>
+    <div class="shot">
+      <img src="Screenshot.png" alt="LoadView overlay showing CPU, GPU, RAM, disk and network graphs, temperatures, top processes, drives, IP and clock">
+    </div>
+  </div>
+
+  <ul class="feat">
+    <li><strong>Everything at a glance</strong> &mdash; CPU / GPU / RAM / disk / network graphs, per-drive usage bars, top-5 CPU &amp; RAM processes, LAN / WAN IP, clock, date and weekday.</li>
+    <li><strong>Temperatures for every GPU</strong> (NVIDIA / AMD / Intel, no driver) plus an optional accurate CPU temperature that works even with Windows Memory Integrity on.</li>
+    <li><strong>Vendor-neutral &amp; DPI-agnostic</strong> &mdash; the same counters Task Manager uses; crisp at any scaling; remembers its position per screen resolution.</li>
+    <li><strong>Fully configurable</strong> &mdash; resize, reorder or hide any section; per-graph colours, max and red alerts; MB/s or Mbps; &deg;C/&deg;F; opacity; always-on-top or coverable; lock.</li>
+    <li><strong>Single portable exe</strong> &mdash; one <code>LoadView.exe</code>, runs on any Windows 10/11 PC.</li>
+  </ul>
+
+  <footer>
+    <a href="https://github.com/Jimmy20/LoadView">Source on GitHub</a> &middot; MIT licensed &middot;
+    Unsigned build &mdash; see the repo's <em>Antivirus / Defender</em> note if SmartScreen warns on first run.
+  </footer>
+</div>
+</body>
+</html>
