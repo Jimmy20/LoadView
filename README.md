@@ -1,9 +1,5 @@
 # LoadView
 
-<p align="center">
-  <img src="docs/social.png" alt="LoadView — always-on-top Windows overlay with live CPU, GPU, RAM, disk and network graphs, temperatures, drives and more">
-</p>
-
 [![Latest release](https://img.shields.io/github/v/release/Jimmy20/LoadView)](https://github.com/Jimmy20/LoadView/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Jimmy20/LoadView/total)](https://github.com/Jimmy20/LoadView/releases)
 [![License: MIT](https://img.shields.io/github/license/Jimmy20/LoadView)](LICENSE)
