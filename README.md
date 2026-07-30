@@ -16,11 +16,12 @@ as a <strong>single portable <code>.exe</code></strong>. No install, no dependen
 <p><strong>⬇ <a href="https://github.com/Jimmy20/LoadView/releases/latest">Download the latest release</a></strong> &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free &amp; open-source</p>
 <h3>Highlights</h3>
 <ul>
-<li><strong>Single portable exe</strong> — one <code>LoadView.exe</code>, no install and no dependencies; runs on any Windows 10/11 PC.</li>
-<li><strong>Everything at a glance</strong> — CPU / GPU / RAM / disk / network graphs, per-drive usage bars, top-5 CPU &amp; RAM processes, LAN / WAN IP, clock, date and weekday.</li>
+<li><strong>Everything at a glance</strong> — live CPU / GPU / RAM / disk / network graphs, plus <strong>session data-transfer totals</strong> (downloaded / uploaded), top-5 CPU &amp; RAM processes, and a clock, date &amp; weekday.</li>
+<li><strong>Drives &amp; IP</strong> — per-drive usage bars with free space, <strong>including mapped network drives</strong>, plus your <strong>LAN and public (WAN) IP</strong>.</li>
 <li><strong>Temperatures for every GPU</strong> (NVIDIA / AMD / Intel, no driver needed) plus an <em>optional</em> accurate CPU temperature that <strong>works even with Windows Memory Integrity turned on</strong>.</li>
 <li><strong>Vendor-neutral &amp; DPI-agnostic</strong> — the same counters Task Manager uses; crisp at any scaling; remembers its position per screen resolution.</li>
-<li><strong>Fully configurable</strong> — resize, reorder or hide any section; per-graph colours, max and red alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.</li>
+<li><strong>Fully configurable</strong> — resize, reorder or hide any section; per-graph colours, max &amp; red alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.</li>
+<li><strong>Single portable exe</strong> — one <code>LoadView.exe</code>, no install and no dependencies; runs on any Windows 10/11 PC.</li>
 </ul>
 </td>
 <td valign="top" width="260">
