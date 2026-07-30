@@ -174,6 +174,7 @@ namespace LoadView
             _menu.Items.Add(_topItem);
             _menu.Items.Add("Reset position", null, delegate { ResetPosition(); });
             _menu.Items.Add("Settings...", null, delegate { OpenSettings(); });
+            _menu.Items.Add("Contact me", null, delegate { OpenContact(); });
             _menu.Items.Add("About", null, delegate { OpenAbout(); });
             _menu.Items.Add(new ToolStripSeparator());
             _menu.Items.Add("Exit", null, delegate { Close(); });
@@ -196,6 +197,7 @@ namespace LoadView
             tm.Items.Add(new ToolStripSeparator());
             tm.Items.Add("Reset position", null, delegate { ResetPosition(); });
             tm.Items.Add("Settings...", null, delegate { OpenSettings(); });
+            tm.Items.Add("Contact me", null, delegate { OpenContact(); });
             tm.Items.Add("About", null, delegate { OpenAbout(); });
             tm.Items.Add(new ToolStripSeparator());
             tm.Items.Add("Exit", null, delegate { Close(); });
@@ -298,6 +300,13 @@ namespace LoadView
         {
             using (AboutForm a = new AboutForm())
                 a.ShowDialog(this);
+        }
+
+        // Open the default mail client to contact the author.
+        private void OpenContact()
+        {
+            try { System.Diagnostics.Process.Start("mailto:Jimmy20@seznam.cz?subject=LoadView"); }
+            catch (Exception ex) { Log.Write("mailto", ex); }
         }
 
         private void ToggleLock()

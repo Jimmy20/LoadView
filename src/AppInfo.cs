@@ -14,6 +14,7 @@ namespace LoadView
             "    uses the free, signed PawnIO driver instead of the blocked WinRing0",
             "  - One-click setup from Settings: installs PawnIO (one UAC) + a scheduled",
             "    task, so afterwards the temp starts silently with no more UAC prompts",
+            "  - Right-click menu: added \"Contact me\" (opens your email client)",
             "",
             "2.7.0",
             "  - Optional accurate CPU temperature via a helper driver (off by default):",
