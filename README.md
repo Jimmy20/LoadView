@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/github/license/Jimmy20/LoadView)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6)
 
+<table>
+<tr>
+<td valign="top">
+
 **Task Manager's performance graphs, pinned to the corner of your screen.** LoadView is a
 lightweight, always-on-top overlay showing live **CPU, GPU, RAM, disk and network** graphs —
 plus temperatures, per-drive usage, top processes, a clock and your IP — as a **single portable
@@ -12,14 +16,9 @@ plus temperatures, per-drive usage, top processes, a clock and your IP — as a 
 
 _A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight monitoring suites._
 
-### ⬇ [Download the latest release](https://github.com/Jimmy20/LoadView/releases/latest) &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free & open-source
+**⬇ [Download the latest release](https://github.com/Jimmy20/LoadView/releases/latest)** &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free & open-source
 
-<p align="center">
-  <img src="docs/Screenshot.png" width="240"
-       alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
-</p>
-
-## Highlights
+### Highlights
 
 - **Single portable exe** — one `LoadView.exe`, no install and no dependencies; runs on any
   Windows 10/11 PC.
@@ -31,6 +30,14 @@ _A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight 
   remembers its position per screen resolution.
 - **Fully configurable** — resize, reorder or hide any section; per-graph colours, max and red
   alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.
+
+</td>
+<td valign="top" width="260">
+<img src="docs/Screenshot.png" width="245"
+     alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
+</td>
+</tr>
+</table>
 
 ## Build
 
