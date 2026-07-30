@@ -15,7 +15,7 @@ _A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight 
 ### ⬇ [Download the latest release](https://github.com/Jimmy20/LoadView/releases/latest) &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free & open-source
 
 <p align="center">
-  <img src="docs/screenshot.png" width="240"
+  <img src="docs/Screenshot.png" width="240"
        alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
 </p>
 
