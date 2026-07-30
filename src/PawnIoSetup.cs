@@ -95,9 +95,8 @@ namespace LoadView
                 return false;
             }
 
-            // PawnIO_setup.exe is an NSIS installer; /S runs it silently. If a build ignores it,
-            // the installer UI shows briefly (still launched by us) — either way we re-check after.
-            Run(dst, "/S", 180000, false);
+            // Official unattended switches for PawnIO_setup.exe: "-install -silent".
+            Run(dst, "-install -silent", 180000, false);
             for (int i = 0; i < 20 && !DriverInstalled(); i++) System.Threading.Thread.Sleep(500);
             return DriverInstalled();
         }
