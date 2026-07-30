@@ -94,18 +94,21 @@ key; see *Antivirus / Defender* below.)
 ## Antivirus / Defender
 
 LoadView is a single **unsigned** exe, so Microsoft Defender's machine-learning heuristics may
-flag a freshly-downloaded build as a **false positive** — most commonly:
+occasionally flag a freshly-downloaded build as a **false positive** — typically
+**`Trojan:Win32/Wacatac.B!ml`**, a *generic* ML "catch-all" for unknown, low-reputation
+executables. The `!ml` suffix means it's a heuristic guess, **not** a signature match, and the
+Microsoft encyclopedia page for it is generic family boilerplate, not an analysis of this file.
+Because every new unsigned release starts with near-zero reputation, this can recur on new
+versions until reputation builds up (or the exe is signed).
 
-- **`Trojan:Win32/Wacatac.B!ml`** — a *generic* ML "catch-all" bucket for unknown, low-reputation
-  executables. The `!ml` suffix means it's a heuristic guess, **not** a signature match, and the
-  Microsoft encyclopedia page for it is generic family boilerplate, not an analysis of this file.
-- **`Behavior:Win32/Persistence.A!ml`** — an older behavioral heuristic tripped by writing to
-  `HKCU\…\Run`. LoadView avoids this by using a Startup-folder shortcut (above) instead.
+> An older heuristic, **`Behavior:Win32/Persistence.A!ml`**, used to trip on apps writing to
+> `HKCU\…\Run`. LoadView hasn't done that since v2.4.0 — it uses a Startup-folder shortcut — so
+> that one shouldn't occur on current versions.
 
-Why it happens: the exe is **unsigned** and **newly released** (near-zero download reputation), and
-the *optional* accurate-CPU-temp feature contains "download a file, then run an elevated helper"
-code — benign and **off by default**, but a pattern ML models are trained on. None of this is
-malware; the binary is built by GitHub Actions from the public source in this repo.
+Why it happens: the exe is **unsigned** and each release is **freshly built** (near-zero download
+reputation), and the *optional* accurate-CPU-temp feature downloads and installs a driver and runs
+an elevated helper — benign and **off by default**, but a pattern ML models are trained on. None of
+this is malware; the binary is built by GitHub Actions from the public source in this repo.
 
 **Verify integrity:** compare your download's hash with the release asset —
 `Get-FileHash LoadView.exe -Algorithm SHA256` — or upload it to
