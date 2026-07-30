@@ -8,33 +8,23 @@
 <table>
 <tr>
 <td valign="top">
-
-**Task Manager's performance graphs, pinned to the corner of your screen.** LoadView is a
-lightweight, always-on-top overlay showing live **CPU, GPU, RAM, disk and network** graphs —
-plus temperatures, per-drive usage, top processes, a clock and your IP — as a **single portable
-`.exe`**. No install, no dependencies.
-
-_A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight monitoring suites._
-
-**⬇ [Download the latest release](https://github.com/Jimmy20/LoadView/releases/latest)** &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free & open-source
-
-### Highlights
-
-- **Single portable exe** — one `LoadView.exe`, no install and no dependencies; runs on any
-  Windows 10/11 PC.
-- **Everything at a glance** — CPU / GPU / RAM / disk / network graphs, per-drive usage bars,
-  top-5 CPU & RAM processes, LAN / WAN IP, clock, date and weekday.
-- **Temperatures for every GPU** (NVIDIA / AMD / Intel, no driver needed) plus an *optional*
-  accurate CPU temperature that **works even with Windows Memory Integrity turned on**.
-- **Vendor-neutral & DPI-agnostic** — the same counters Task Manager uses; crisp at any scaling;
-  remembers its position per screen resolution.
-- **Fully configurable** — resize, reorder or hide any section; per-graph colours, max and red
-  alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.
-
+<p><strong>Task Manager's performance graphs, pinned to the corner of your screen.</strong>
+LoadView is a lightweight, always-on-top overlay showing live <strong>CPU, GPU, RAM, disk and
+network</strong> graphs — plus temperatures, per-drive usage, top processes, a clock and your IP —
+as a <strong>single portable <code>.exe</code></strong>. No install, no dependencies.</p>
+<p><em>A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight monitoring suites.</em></p>
+<p><strong>⬇ <a href="https://github.com/Jimmy20/LoadView/releases/latest">Download the latest release</a></strong> &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free &amp; open-source</p>
+<h3>Highlights</h3>
+<ul>
+<li><strong>Single portable exe</strong> — one <code>LoadView.exe</code>, no install and no dependencies; runs on any Windows 10/11 PC.</li>
+<li><strong>Everything at a glance</strong> — CPU / GPU / RAM / disk / network graphs, per-drive usage bars, top-5 CPU &amp; RAM processes, LAN / WAN IP, clock, date and weekday.</li>
+<li><strong>Temperatures for every GPU</strong> (NVIDIA / AMD / Intel, no driver needed) plus an <em>optional</em> accurate CPU temperature that <strong>works even with Windows Memory Integrity turned on</strong>.</li>
+<li><strong>Vendor-neutral &amp; DPI-agnostic</strong> — the same counters Task Manager uses; crisp at any scaling; remembers its position per screen resolution.</li>
+<li><strong>Fully configurable</strong> — resize, reorder or hide any section; per-graph colours, max and red alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.</li>
+</ul>
 </td>
 <td valign="top" width="260">
-<img src="docs/Screenshot.png" width="245"
-     alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
+<img src="docs/Screenshot.png" width="245" alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
 </td>
 </tr>
 </table>
