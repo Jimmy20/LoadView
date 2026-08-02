@@ -34,6 +34,7 @@ namespace LoadView
         private volatile bool _stop;
         private DateTime _lastExtAttempt = DateTime.MinValue;
         private string _lastGeoIp = "";
+        private DateTime _lastFlagAttempt = DateTime.MinValue;
 
         public SystemInfoProvider()
         {
@@ -53,7 +54,7 @@ namespace LoadView
         // Force an immediate WAN IP + geo refresh on the next loop tick (~1 s).
         public void RefreshWanNow()
         {
-            lock (_lock) { _lastExtAttempt = DateTime.MinValue; _lastGeoIp = ""; }
+            lock (_lock) { _lastExtAttempt = DateTime.MinValue; _lastGeoIp = ""; _lastFlagAttempt = DateTime.MinValue; }
         }
 
         // Local path where a country flag PNG is cached (downloaded on demand). cc is ISO-2, lowercase.
@@ -191,30 +192,44 @@ namespace LoadView
                 return;
             }
 
-            string ip, lastGeo;
-            lock (_lock) { ip = _externalIp; lastGeo = _lastGeoIp; }
+            string ip, lastGeo, cc;
+            lock (_lock) { ip = _externalIp; lastGeo = _lastGeoIp; cc = _wanCc; }
             if (ip.Length == 0 || ip == "—") return;
-            if (ip == lastGeo) return;   // already resolved for this IP
 
-            string country = "", cc = "";
-            try
+            // Resolve the country only when the IP changed (it rarely changes).
+            if (ip != lastGeo)
             {
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://ipwho.is/" + ip);
-                req.Timeout = 5000;
-                req.UserAgent = "LoadView";
-                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
+                string country = "";
+                cc = "";
+                try
                 {
-                    string json = sr.ReadToEnd();
-                    country = Extract(json, "\"country\"\\s*:\\s*\"([^\"]*)\"");
-                    cc = Extract(json, "\"country_code\"\\s*:\\s*\"([^\"]*)\"").ToLowerInvariant();
+                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://ipwho.is/" + ip);
+                    req.Timeout = 5000;
+                    req.UserAgent = "LoadView";
+                    using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                    using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
+                    {
+                        string json = sr.ReadToEnd();
+                        country = Extract(json, "\"country\"\\s*:\\s*\"([^\"]*)\"");
+                        cc = Extract(json, "\"country_code\"\\s*:\\s*\"([^\"]*)\"").ToLowerInvariant();
+                    }
+                }
+                catch { }
+                lock (_lock) { _wanCountry = country; _wanCc = cc; _lastGeoIp = ip; }
+            }
+
+            // Ensure the flag image exists whenever it's enabled — independent of the geo gate above, so
+            // it also downloads when the flag is switched on after the country was already resolved (or a
+            // previous download failed). Throttled so a failing flagcdn isn't hammered.
+            if (FlagEnabled && cc != null && cc.Length == 2)
+            {
+                string fp = FlagPath(cc);
+                if (fp != null && !File.Exists(fp) && (DateTime.UtcNow - _lastFlagAttempt).TotalSeconds >= 8)
+                {
+                    _lastFlagAttempt = DateTime.UtcNow;
+                    try { EnsureFlag(cc); } catch (Exception ex) { Log.Write("flag download failed (" + cc + ")", ex); }
                 }
             }
-            catch { }
-
-            lock (_lock) { _wanCountry = country; _wanCc = cc; _lastGeoIp = ip; }
-
-            if (FlagEnabled && cc.Length == 2) { try { EnsureFlag(cc); } catch { } }
         }
 
         private static string Extract(string s, string pattern)
