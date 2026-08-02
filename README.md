@@ -48,8 +48,8 @@ This produces `bin\LoadView.exe`.
 
 - **Drag** anywhere on the panel to move it; the position is saved **per screen resolution**
   (each display layout remembers its own spot and is restored when you return to it).
-- **Right-click** the panel (or the tray icon) for: *Lock*, *Always on top*, *Reset position*,
-  *Settings…*, *About*, *Exit*.
+- **Right-click** the panel (or the tray icon) for: *Lock*, *Always on top*, *Refresh WAN now*,
+  *Reset position*, *Settings…*, *Contact me*, *About*, *Exit*.
 - **Left-click the tray icon** to bring the overlay to the front (even in background mode).
 
 All settings are stored in `%APPDATA%\LoadView\settings.ini` (delete it to reset to defaults).
@@ -72,7 +72,8 @@ them — **OK** keeps them, **Cancel** reverts. Categories:
   date and weekday.
 - **Drives & lists** — drive-label size + bold; Top CPU/RAM text size; IP text size.
 - **Network** — unit (**MB/s** bytes or **Mbps** bits); **download / upload colours** (default
-  green / red); net-totals text size; **LAN / WAN IP refresh** intervals (seconds).
+  green / red); net-totals text size; **LAN / WAN IP refresh** intervals (seconds); **show WAN
+  country** and **flag** under the public IP (off by default).
 - **Behavior** — opacity; *Always on top*; *Lock position*; show external IP; **Start with
   Windows**; **write debug log**.
 - **Defaults** — *Save current as defaults* writes your config to `defaults.ini`; *Reset to
@@ -81,8 +82,9 @@ them — **OK** keeps them, **Cancel** reverts. Categories:
 
 Only one instance runs at a time (launching again is a no-op).
 
-The right-click menu order is **Lock · Always on top · Reset position · Settings… · About ·
-Exit**. About shows the version and changelog.
+The right-click menu order is **Lock · Always on top · Refresh WAN now · Reset position ·
+Settings… · Contact me · About · Exit**. *Refresh WAN now* re-fetches your public IP on demand.
+About shows the version and changelog.
 
 ## Start with Windows
 
@@ -166,7 +168,7 @@ and `SIGN_PFX_PASSWORD`; otherwise that step is skipped.
 | Top CPU     | top 5 processes by CPU (aggregated by name)                           |
 | Top RAM     | top 5 processes by memory                                             |
 | Drives      | per drive: usage bar (red ≥90%), used/total, **free space** on the right; includes mapped network drives |
-| IP          | `LAN:` internal address and `WAN:` external/public address            |
+| IP          | `LAN:` internal + `WAN:` public address, optionally with the WAN country + flag |
 | Date        | `29.06.2026` then the weekday below                                   |
 
 If a metric's counter isn't available on a given machine, that row shows `n/a` and the
@@ -225,4 +227,8 @@ affects **CPU** temperature; GPU temperature never needs a driver.
   adapters (loopback and tunnel pseudo-interfaces are excluded).
 - The **external IP** is fetched periodically from a public service (`api.ipify.org` over
   HTTPS); turn it off in Settings if you prefer no outbound requests. It shows `—` when offline.
+  **Refresh WAN now** (right-click menu) re-fetches it on demand.
+- Optionally the **WAN country + flag** can be shown under it (Settings → Network, off by default):
+  the country is looked up from the IP via `ipwho.is` and a small flag image is fetched from
+  `flagcdn.com` and cached in `%APPDATA%\LoadView\flags` — both only when the option is enabled.
 - Reading performance counters does not require administrator rights.

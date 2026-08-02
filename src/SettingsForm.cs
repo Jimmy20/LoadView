@@ -36,7 +36,7 @@ namespace LoadView
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
             _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog,
-            _tempF, _showCpuTemp, _showGpuTemp, _accurateDriver;
+            _tempF, _showCpuTemp, _showGpuTemp, _accurateDriver, _showWanCountry, _showWanFlag;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
@@ -247,6 +247,8 @@ namespace LoadView
             _netTotalsSize = AddNum("Net totals size (pt)", 7, 28, (int)_working.NetTotalsSize, null);
             _ipLanSec = AddNum("LAN IP refresh (s)", 2, 3600, _working.IpLanRefreshSec, "How often the local IP is re-read.");
             _ipWanSec = AddNum("WAN IP refresh (s)", 30, 86400, _working.IpWanRefreshSec, "How often the public IP is looked up.");
+            _showWanCountry = AddCheck("Show WAN country", _working.ShowWanCountry, "Show the country of your public IP under WAN (looks it up online).");
+            _showWanFlag = AddCheck("Show WAN flag", _working.ShowWanFlag, "Show the country flag next to it (downloads a small flag image).");
         }
 
         private void BuildTemperatures()
@@ -419,6 +421,8 @@ namespace LoadView
             _working.NetTotalsSize = (float)_netTotalsSize.Value;
             _working.IpLanRefreshSec = (int)_ipLanSec.Value;
             _working.IpWanRefreshSec = (int)_ipWanSec.Value;
+            _working.ShowWanCountry = _showWanCountry.Checked;
+            _working.ShowWanFlag = _showWanFlag.Checked;
 
             _working.ShowSeconds = _seconds.Checked;
             _working.ClockSize = (float)_clockSize.Value;

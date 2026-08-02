@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.8.0";
+        public const string Version = "2.9.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.9.0",
+            "  - Right-click menu: \"Refresh WAN now\" (re-fetch the public IP on demand)",
+            "  - Optional country name + flag under the WAN IP (Settings > Network),",
+            "    off by default; looks up the country and downloads a small flag image",
+            "",
             "2.8.0",
             "  - Accurate CPU temp now works with Windows Memory Integrity (HVCI) on:",
             "    uses the free, signed PawnIO driver instead of the blocked WinRing0",

@@ -371,6 +371,10 @@ namespace LoadView
         public string Lan = "—";
         public string Wan = "—";
         public bool ShowWan = true;
+        public bool ShowCountry = false;   // show the WAN IP's country under WAN
+        public bool ShowFlag = false;      // show the country flag next to it
+        public string Country = "";
+        public Image Flag;                 // owned by the caller (not disposed here)
         public float TextSize = 9f;
 
         private Font _hdr, _row;
@@ -397,7 +401,7 @@ namespace LoadView
 
         public int PreferredHeight()
         {
-            int rows = 1 + (ShowWan ? 1 : 0);
+            int rows = 1 + (ShowWan ? 1 : 0) + ((ShowWan && (ShowCountry || ShowFlag)) ? 1 : 0);
             return LineH(Hdr()) + rows * LineH(Row()) + Pad();
         }
 
@@ -417,6 +421,36 @@ namespace LoadView
             if (ShowWan)
                 TextRenderer.DrawText(g, "WAN:  " + Wan, Row(), new Rectangle(pad, hh + lh, contentW, lh), TextColor,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+            // Optional country name + flag under WAN, centred as a group.
+            if (ShowWan && (ShowCountry || ShowFlag))
+            {
+                int gy = hh + 2 * lh;
+                string name = ShowCountry ? (Country ?? "") : "";
+                Image flag = ShowFlag ? Flag : null;
+
+                int gap = (flag != null && name.Length > 0) ? Math.Max(4, lh / 6) : 0;
+                int flagH = 0, flagW = 0;
+                if (flag != null)
+                {
+                    flagH = Math.Max(8, lh - 6);
+                    flagW = (int)Math.Round((double)flagH * flag.Width / flag.Height);
+                }
+                Size tsz = name.Length > 0
+                    ? TextRenderer.MeasureText(g, name, Row(), new Size(contentW, lh), TextFormatFlags.NoPadding)
+                    : Size.Empty;
+                int total = flagW + gap + tsz.Width;
+                int sx = pad + Math.Max(0, (contentW - total) / 2);
+                if (flag != null)
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.DrawImage(flag, new Rectangle(sx, gy + (lh - flagH) / 2, flagW, flagH));
+                    sx += flagW + gap;
+                }
+                if (name.Length > 0)
+                    TextRenderer.DrawText(g, name, Row(), new Rectangle(sx, gy, tsz.Width + 4, lh), TextColor,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
         }
 
         protected override void Dispose(bool disposing)

@@ -50,6 +50,7 @@ namespace LoadView
         private ListPanel _topCpu, _topRam;
         private DrivesPanel _drives;
         private IpPanel _ip;
+        private readonly Dictionary<string, Image> _flagCache = new Dictionary<string, Image>();
         private FooterPanel _footer;
 
         private ContextMenuStrip _menu;
@@ -172,6 +173,7 @@ namespace LoadView
             _topItem = new ToolStripMenuItem("Always on top");
             _topItem.Click += delegate { ToggleAlwaysOnTop(); };
             _menu.Items.Add(_topItem);
+            _menu.Items.Add("Refresh WAN now", null, delegate { _sysinfo.RefreshWanNow(); });
             _menu.Items.Add("Reset position", null, delegate { ResetPosition(); });
             _menu.Items.Add("Settings...", null, delegate { OpenSettings(); });
             _menu.Items.Add("Contact me", null, delegate { OpenContact(); });
@@ -195,6 +197,7 @@ namespace LoadView
             ContextMenuStrip tm = new ContextMenuStrip();
             tm.Items.Add("Show / Hide", null, delegate { ToggleVisible(); });
             tm.Items.Add(new ToolStripSeparator());
+            tm.Items.Add("Refresh WAN now", null, delegate { _sysinfo.RefreshWanNow(); });
             tm.Items.Add("Reset position", null, delegate { ResetPosition(); });
             tm.Items.Add("Settings...", null, delegate { OpenSettings(); });
             tm.Items.Add("Contact me", null, delegate { OpenContact(); });
@@ -353,6 +356,25 @@ namespace LoadView
             SaveSettings();
         }
 
+        // Load (and cache) the flag PNG for a country code; null until the provider has downloaded it.
+        private Image FlagImage(string cc)
+        {
+            if (string.IsNullOrEmpty(cc)) return null;
+            Image img;
+            if (_flagCache.TryGetValue(cc, out img)) return img;
+            string path = SystemInfoProvider.FlagPath(cc);
+            if (path == null || !System.IO.File.Exists(path)) return null;   // retry next tick once it exists
+            try
+            {
+                using (System.IO.FileStream fs = System.IO.File.OpenRead(path))
+                using (Image tmp = Image.FromStream(fs))
+                    img = new Bitmap(tmp);   // copy so the file isn't locked
+                _flagCache[cc] = img;
+                return img;
+            }
+            catch { return null; }
+        }
+
         // ---------- apply settings ----------
 
         // Apply settings to the overlay without persisting (used for live preview from the
@@ -415,6 +437,10 @@ namespace LoadView
             _sysinfo.ExternalIpEnabled = _settings.ExternalIpEnabled;
             _sysinfo.LanRefreshSec = _settings.IpLanRefreshSec;
             _sysinfo.WanRefreshSec = _settings.IpWanRefreshSec;
+            _ip.ShowCountry = _settings.ShowWanCountry;
+            _ip.ShowFlag = _settings.ShowWanFlag;
+            _sysinfo.GeoEnabled = _settings.ShowWanCountry || _settings.ShowWanFlag;
+            _sysinfo.FlagEnabled = _settings.ShowWanFlag;
 
             foreach (string key in Settings.AllSections)
             {
@@ -765,6 +791,8 @@ namespace LoadView
 
             _ip.Lan = _sysinfo.InternalIp();
             _ip.Wan = _sysinfo.ExternalIp();
+            _ip.Country = _sysinfo.WanCountry();
+            _ip.Flag = _settings.ShowWanFlag ? FlagImage(_sysinfo.WanCc()) : null;
             _ip.Invalidate();
 
             RefreshDrives(true);

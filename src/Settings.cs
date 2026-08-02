@@ -71,6 +71,8 @@ namespace LoadView
         public bool ExternalIpEnabled = true;
         public int IpLanRefreshSec = 10;
         public int IpWanRefreshSec = 600;
+        public bool ShowWanCountry = false;    // show the country of the WAN IP under WAN
+        public bool ShowWanFlag = false;       // show the country flag next to it
 
         // temperatures
         public bool TempFahrenheit = false;        // false: show °C, true: show °F
@@ -294,6 +296,8 @@ namespace LoadView
             s.DebugLog = GetBool(kv, "debuglog", s.DebugLog);
             s.IpLanRefreshSec = GetInt(kv, "iplanrefreshsec", s.IpLanRefreshSec);
             s.IpWanRefreshSec = GetInt(kv, "ipwanrefreshsec", s.IpWanRefreshSec);
+            s.ShowWanCountry = GetBool(kv, "showwancountry", s.ShowWanCountry);
+            s.ShowWanFlag = GetBool(kv, "showwanflag", s.ShowWanFlag);
 
             foreach (string key in AllSections)
                 s.SetShow(key, GetBool(kv, "show_" + key, s.GetShow(key)));
@@ -389,6 +393,8 @@ namespace LoadView
                 l.Add("debuglog=" + B(DebugLog));
                 l.Add("iplanrefreshsec=" + IpLanRefreshSec.ToString(CultureInfo.InvariantCulture));
                 l.Add("ipwanrefreshsec=" + IpWanRefreshSec.ToString(CultureInfo.InvariantCulture));
+                l.Add("showwancountry=" + B(ShowWanCountry));
+                l.Add("showwanflag=" + B(ShowWanFlag));
 
                 foreach (string key in AllSections)
                     l.Add("show_" + key + "=" + B(GetShow(key)));

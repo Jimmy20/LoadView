@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace LoadView
@@ -20,14 +21,19 @@ namespace LoadView
         private DriveLine[] _drives = new DriveLine[0];
         private string _internalIp = "";
         private string _externalIp = "";
+        private string _wanCountry = "";
+        private string _wanCc = "";
 
         public volatile bool ExternalIpEnabled = true;
         public volatile int LanRefreshSec = 10;
         public volatile int WanRefreshSec = 600;
+        public volatile bool GeoEnabled = false;   // resolve the country of the WAN IP
+        public volatile bool FlagEnabled = false;  // also download the country flag image
 
         private readonly Thread _thread;
         private volatile bool _stop;
         private DateTime _lastExtAttempt = DateTime.MinValue;
+        private string _lastGeoIp = "";
 
         public SystemInfoProvider()
         {
@@ -41,6 +47,23 @@ namespace LoadView
         public DriveLine[] Drives() { lock (_lock) { return _drives; } }
         public string InternalIp() { lock (_lock) { return _internalIp; } }
         public string ExternalIp() { lock (_lock) { return _externalIp; } }
+        public string WanCountry() { lock (_lock) { return _wanCountry; } }
+        public string WanCc() { lock (_lock) { return _wanCc; } }
+
+        // Force an immediate WAN IP + geo refresh on the next loop tick (~1 s).
+        public void RefreshWanNow()
+        {
+            lock (_lock) { _lastExtAttempt = DateTime.MinValue; _lastGeoIp = ""; }
+        }
+
+        // Local path where a country flag PNG is cached (downloaded on demand). cc is ISO-2, lowercase.
+        public static string FlagPath(string cc)
+        {
+            if (string.IsNullOrEmpty(cc)) return null;
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "LoadView", "flags", cc + ".png");
+        }
 
         private void Loop()
         {
@@ -57,6 +80,7 @@ namespace LoadView
                 }
                 catch { }
                 try { RefreshExternalIp(); } catch { }
+                try { RefreshWanGeo(); } catch { }
                 tick++;
                 for (int i = 0; i < 10 && !_stop; i++) Thread.Sleep(100); // ~1 s base
             }
@@ -129,16 +153,17 @@ namespace LoadView
         {
             if (!ExternalIpEnabled) { lock (_lock) { _externalIp = ""; } return; }
 
-            string cur; lock (_lock) { cur = _externalIp; }
+            string cur; DateTime last;
+            lock (_lock) { cur = _externalIp; last = _lastExtAttempt; }
             bool have = cur.Length > 0 && cur != "—";
-            double since = (DateTime.UtcNow - _lastExtAttempt).TotalSeconds;
+            double since = (DateTime.UtcNow - last).TotalSeconds;
             int wan = WanRefreshSec; if (wan < 5) wan = 5;
             int retry = wan < 30 ? wan : 30;
             // refresh every WanRefreshSec once known; retry sooner until we have one
             if (have && since < wan) return;
             if (!have && since < retry) return;
 
-            _lastExtAttempt = DateTime.UtcNow;
+            lock (_lock) { _lastExtAttempt = DateTime.UtcNow; }
             string ip = "—";
             try
             {
@@ -154,6 +179,65 @@ namespace LoadView
             }
             catch { }
             lock (_lock) { _externalIp = ip; }
+        }
+
+        // Resolve the WAN IP's country (and optionally download its flag). Runs only when enabled and
+        // only when the IP has changed since the last lookup — the country rarely changes.
+        private void RefreshWanGeo()
+        {
+            if (!GeoEnabled)
+            {
+                lock (_lock) { _wanCountry = ""; _wanCc = ""; _lastGeoIp = ""; }
+                return;
+            }
+
+            string ip, lastGeo;
+            lock (_lock) { ip = _externalIp; lastGeo = _lastGeoIp; }
+            if (ip.Length == 0 || ip == "—") return;
+            if (ip == lastGeo) return;   // already resolved for this IP
+
+            string country = "", cc = "";
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://ipwho.is/" + ip);
+                req.Timeout = 5000;
+                req.UserAgent = "LoadView";
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
+                {
+                    string json = sr.ReadToEnd();
+                    country = Extract(json, "\"country\"\\s*:\\s*\"([^\"]*)\"");
+                    cc = Extract(json, "\"country_code\"\\s*:\\s*\"([^\"]*)\"").ToLowerInvariant();
+                }
+            }
+            catch { }
+
+            lock (_lock) { _wanCountry = country; _wanCc = cc; _lastGeoIp = ip; }
+
+            if (FlagEnabled && cc.Length == 2) { try { EnsureFlag(cc); } catch { } }
+        }
+
+        private static string Extract(string s, string pattern)
+        {
+            try { Match m = Regex.Match(s, pattern); return m.Success ? m.Groups[1].Value : ""; }
+            catch { return ""; }
+        }
+
+        // Download the small country flag PNG once and cache it locally.
+        private static void EnsureFlag(string cc)
+        {
+            string path = FlagPath(cc);
+            if (path == null || File.Exists(path)) return;
+            string dir = Path.GetDirectoryName(path);
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://flagcdn.com/w40/" + cc + ".png");
+            req.Timeout = 5000;
+            req.UserAgent = "LoadView";
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            using (Stream rs = resp.GetResponseStream())
+            using (FileStream fs = File.Create(path))
+                rs.CopyTo(fs);
         }
 
         public void Dispose()
