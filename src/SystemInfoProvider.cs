@@ -171,6 +171,8 @@ namespace LoadView
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://api.ipify.org");
                 req.Timeout = 5000;
                 req.UserAgent = "LoadView";
+                req.KeepAlive = false;   // fresh connection so a VPN / network change re-routes the request
+                req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                 using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                 using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
                 {
@@ -206,6 +208,8 @@ namespace LoadView
                     HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://ipwho.is/" + ip);
                     req.Timeout = 5000;
                     req.UserAgent = "LoadView";
+                    req.KeepAlive = false;
+                    req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                     using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                     using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
                     {
