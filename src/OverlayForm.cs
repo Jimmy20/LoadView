@@ -496,26 +496,42 @@ namespace LoadView
             }
         }
 
-        // One-time, one-UAC setup: install the PawnIO driver + register the helper task.
+        // One-time, one-UAC setup: install the PawnIO driver, stage the reader into an admin-only
+        // folder, and register the SYSTEM task that runs it.
         private void PromptAndSetup()
         {
             if (_setupPrompted) return;
             _setupPrompted = true;
-            DialogResult r = MessageBox.Show(this,
-                "To show the real CPU temperature, LoadView needs a small hardware-sensor driver "
-                + "called PawnIO (free, open-source, digitally signed). LoadView will download it "
-                + "from its official source and install it. Windows will ask for administrator "
-                + "permission once; after that it starts silently. It works with Windows Memory "
-                + "Integrity turned on.\r\n\r\nInstall now?",
-                "LoadView — accurate CPU temperature",
+
+            // An existing staged copy means this is a re-run after an app update, not a first install.
+            bool update = System.IO.File.Exists(TempIpc.StagedExePath());
+            string msg = update
+                ? "LoadView has been updated, so the accurate CPU temperature needs its one-time "
+                  + "setup again (the reader that runs with system rights has to be refreshed).\r\n\r\n"
+                  + "Windows will ask for administrator permission once. Run it now?"
+                : "To show the real CPU temperature, LoadView needs two things: the small hardware-"
+                  + "sensor driver PawnIO (free, open-source, digitally signed) and a reader that runs "
+                  + "with system rights — the CPU's temperature register cannot be read without "
+                  + "them.\r\n\r\nWindows will ask for administrator permission once. After that the "
+                  + "temperature appears silently on every launch, with no further prompts, and it "
+                  + "keeps working even if your Windows account is not an administrator. It also works "
+                  + "with Windows Memory Integrity turned on.\r\n\r\nSet it up now?";
+
+            DialogResult r = MessageBox.Show(this, msg, "LoadView — accurate CPU temperature",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (r != DialogResult.Yes) return;
+
+            // Fetch the sensor library here, as the logged-on user: this process is the one that has
+            // the proxy credentials. The elevated side verifies the hash, so it isn't trusting us.
+            string zip = TempIpc.DownloadLhmZipAsUser();
             try
             {
+                string args = "--temp-setup";
+                if (!string.IsNullOrEmpty(zip)) args += " \"" + zip + "\"";
                 System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(
-                    Application.ExecutablePath, "--temp-setup");
+                    Application.ExecutablePath, args);
                 psi.UseShellExecute = true;
-                psi.Verb = "runas";   // one UAC: installs PawnIO + registers the task
+                psi.Verb = "runas";   // one UAC: installs PawnIO + stages the reader + registers the task
                 System.Diagnostics.Process.Start(psi);
             }
             catch (Exception ex) { Log.Write("temp-setup launch (UAC declined?)", ex); }

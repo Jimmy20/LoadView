@@ -8,12 +8,30 @@ using System.Text;
 
 namespace LoadView
 {
-    // Shared plumbing between the overlay (medium integrity) and the elevated driver helper:
-    // provisioning (download + verify + extract) LibreHardwareMonitor, and the small files they
-    // use to talk. Everything lives under %APPDATA%\LoadView so the same-user elevated helper sees
-    // it. Downloading only on opt-in keeps the shipped LoadView.exe free of any driver bytes.
+    // Shared plumbing between the overlay (per-user, medium integrity) and the CPU-temperature
+    // helper, which runs as SYSTEM through a scheduled task.
+    //
+    // Why SYSTEM: LibreHardwareMonitor reads the CPU die temperature by opening
+    // \\?\GLOBALROOT\Device\PawnIO, whose DACL is Administrators/SYSTEM only. From a medium
+    // token that CreateFile returns ERROR_ACCESS_DENIED and LHM degrades silently — which is why
+    // the temperature stayed blank for standard (non-admin) users, who have no elevated token for
+    // Task Scheduler's "HighestAvailable" to pick up.
+    //
+    // Layout, and why it is split three ways:
+    //   %ProgramFiles%\LoadView\      Users:RX  the exe copy the task runs + LibreHardwareMonitor.
+    //                                          Admin-only because SYSTEM executes and loads it;
+    //                                          also the path shape default AppLocker/WDAC allow.
+    //   %ProgramData%\LoadView\out\   Users:R   SYSTEM writes (cputemp, helper.log), user reads.
+    //   %ProgramData%\LoadView\in\    Users:M   user writes (helper.run); SYSTEM only ever *stats*
+    //                                          it — never writing into a user-writable folder is
+    //                                          what stops a planted hard link from becoming an
+    //                                          arbitrary SYSTEM write.
+    //   %APPDATA%\LoadView\                     unchanged per-user state (settings.ini, flags\).
     internal static class TempIpc
     {
+        // Bumped whenever this on-disk layout changes, so an older setup is detected and redone.
+        public const string SetupSchema = "2";
+
         // Pinned LibreHardwareMonitor release (net472 build) and its verified SHA-256. This zip
         // bundles LibreHardwareMonitorLib.dll together with all of its runtime dependencies.
         public const string LhmVersion = "v0.9.6";
@@ -22,19 +40,59 @@ namespace LoadView
         private const string LhmSha256 =
             "086D9F1B5A99E643EDC2CFAAAC16051685B551E4C5AC0B32A57C58C0E529C001";
 
-        private static string Dir()
+        // ---- paths: code (admin-only) ----
+
+        public static string ProgDir()
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadView");
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "LoadView");
         }
-        public static string LibDir() { return Path.Combine(Dir(), "lib"); }
+        public static string LibDir() { return Path.Combine(ProgDir(), "lib"); }
+        public static string StageDir() { return Path.Combine(ProgDir(), "stage"); }
+        public static string StagedExePath() { return Path.Combine(ProgDir(), "LoadView.exe"); }
         public static string LhmDllPath() { return Path.Combine(LibDir(), "LibreHardwareMonitorLib.dll"); }
         private static string OkMarker() { return Path.Combine(LibDir(), "lhm-" + LhmVersion + ".ok"); }
-        private static string CpuTempPath() { return Path.Combine(Dir(), "cputemp"); }
-        private static string HeartbeatPath() { return Path.Combine(Dir(), "helper.run"); }
-        public static string HelperLogPath() { return Path.Combine(Dir(), "helper.log"); }
+        private static string SetupStampPath() { return Path.Combine(ProgDir(), "setup.txt"); }
 
-        // ---- library provisioning (runs in the elevated helper) ----
+        // ---- paths: data channel, split by direction ----
+
+        private static string SharedRoot()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "LoadView");
+        }
+        public static string SharedDir() { return SharedRoot(); }
+        public static string OutDir() { return Path.Combine(SharedRoot(), "out"); }
+        public static string InDir() { return Path.Combine(SharedRoot(), "in"); }
+
+        private static string CpuTempPath() { return Path.Combine(OutDir(), "cputemp"); }
+        private static string HeartbeatPath() { return Path.Combine(InDir(), "helper.run"); }
+        public static string HelperLogPath() { return Path.Combine(OutDir(), "helper.log"); }
+
+        // ---- setup stamp: what the elevated setup provisioned, so we can spot a stale install ----
+
+        public static string ExpectedStamp()
+        {
+            return SetupSchema + "|" + AppInfo.Version + "|" + LhmVersion;
+        }
+
+        public static void WriteSetupStamp()
+        {
+            try { File.WriteAllText(SetupStampPath(), ExpectedStamp()); }
+            catch (Exception ex) { HelperLog("write setup stamp: " + ex.Message); }
+        }
+
+        public static bool SetupStampCurrent()
+        {
+            try
+            {
+                if (!File.Exists(SetupStampPath())) return false;
+                return File.ReadAllText(SetupStampPath()).Trim() == ExpectedStamp();
+            }
+            catch { return false; }
+        }
+
+        // ---- library provisioning (elevated setup only — never the SYSTEM helper) ----
 
         public static bool LibraryReady()
         {
@@ -42,29 +100,54 @@ namespace LoadView
             catch { return false; }
         }
 
-        // Download the pinned zip, verify its SHA-256, and extract the DLLs into LibDir. Returns
-        // false (and logs) on any failure so the caller can fall back gracefully.
-        public static bool EnsureLibrary()
+        // Put the pinned LibreHardwareMonitor build into the admin-only lib dir. The zip is either
+        // downloaded here or handed over by the overlay (see OverlayForm.PreDownloadLhm: the user's
+        // own process is the one that has the corporate proxy's credentials). Either way it is
+        // copied into the hardened staging dir FIRST and the *copy* is hashed, so a user-supplied
+        // path can't be swapped between the check and the extract.
+        public static bool EnsureLibraryElevated(string suppliedZip)
         {
             try
             {
                 if (LibraryReady()) return true;
-                string lib = LibDir();
-                if (!Directory.Exists(lib)) Directory.CreateDirectory(lib);
+                string lib = LibDir(), stage = StageDir();
+                if (!Directory.Exists(lib) || !Directory.Exists(stage))
+                { HelperLog("lib/stage dir missing -- harden step failed?"); return false; }
 
-                string zip = Path.Combine(lib, "lhm-" + LhmVersion + ".zip");
-                try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
-                using (WebClient wc = new WebClient())
-                    wc.DownloadFile(LhmUrl, zip);
+                string zip = Path.Combine(stage, "lhm-" + LhmVersion + ".zip");
+                try { if (File.Exists(zip)) File.Delete(zip); } catch { }
+
+                if (!string.IsNullOrEmpty(suppliedZip) && File.Exists(suppliedZip))
+                {
+                    File.Copy(suppliedZip, zip, true);
+                    HelperLog("lib: using the zip the overlay downloaded");
+                }
+                else
+                {
+                    try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+                    using (WebClient wc = new WebClient())
+                    {
+                        try
+                        {
+                            wc.UseDefaultCredentials = true;
+                            IWebProxy px = WebRequest.GetSystemWebProxy();
+                            px.Credentials = CredentialCache.DefaultCredentials;
+                            wc.Proxy = px;
+                        }
+                        catch { }
+                        wc.DownloadFile(LhmUrl, zip);
+                    }
+                }
 
                 if (!HashEquals(zip, LhmSha256))
                 {
-                    HelperLog("download hash mismatch -- aborting");
+                    HelperLog("lib: zip hash mismatch -- aborting");
                     try { File.Delete(zip); } catch { }
                     return false;
                 }
 
                 // Extract only the top-level *.dll entries (skip exe/pdb/xml/localized resources).
+                // Entries containing a separator are skipped, which also rules out zip-slip.
                 using (ZipArchive za = ZipFile.OpenRead(zip))
                 {
                     foreach (ZipArchiveEntry e in za.Entries)
@@ -76,14 +159,64 @@ namespace LoadView
                 }
                 try { File.Delete(zip); } catch { }
 
-                if (!File.Exists(LhmDllPath())) { HelperLog("extract missing LHM dll"); return false; }
+                if (!File.Exists(LhmDllPath())) { HelperLog("lib: extract missing LHM dll"); return false; }
                 File.WriteAllText(OkMarker(), LhmSha256);
                 return true;
             }
-            catch (Exception ex) { HelperLog("EnsureLibrary: " + ex.Message); return false; }
+            catch (Exception ex) { HelperLog("EnsureLibraryElevated: " + ex.Message); return false; }
         }
 
-        private static bool HashEquals(string file, string expectedHex)
+        // Fetch the pinned zip in the *user's* context. An elevated process — possibly running under
+        // a different admin account — may not have the credentials a corporate proxy wants, whereas
+        // this one demonstrably does. The elevated side re-hashes whatever it is handed, so this is a
+        // convenience, not a trust decision.
+        public static string DownloadLhmZipAsUser()
+        {
+            try
+            {
+                string p = Path.Combine(Path.GetTempPath(), "LoadView-lhm-" + LhmVersion + ".zip");
+                if (File.Exists(p) && HashEquals(p, LhmSha256)) return p;
+
+                try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+                using (WebClient wc = new WebClient())
+                {
+                    try
+                    {
+                        wc.UseDefaultCredentials = true;
+                        IWebProxy px = WebRequest.GetSystemWebProxy();
+                        px.Credentials = CredentialCache.DefaultCredentials;
+                        wc.Proxy = px;
+                    }
+                    catch { }
+                    wc.DownloadFile(LhmUrl, p);
+                }
+                return HashEquals(p, LhmSha256) ? p : null;
+            }
+            catch (Exception ex) { Log.Write("LHM pre-download", ex); return null; }
+        }
+
+        // Drop the pre-2.10 per-user copies. These were written by the overlay's own account, so the
+        // overlay is the right place to remove them — an elevated setup can't reliably find another
+        // user's profile. settings.ini and flags\ are per-user state and stay.
+        public static void CleanLegacyUserFiles()
+        {
+            try
+            {
+                string old = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LoadView");
+                string lib = Path.Combine(old, "lib");
+                if (Directory.Exists(lib)) Directory.Delete(lib, true);
+                string[] stale = new string[] { "cputemp", "helper.run", "helper.log" };
+                for (int i = 0; i < stale.Length; i++)
+                {
+                    string p = Path.Combine(old, stale[i]);
+                    if (File.Exists(p)) File.Delete(p);
+                }
+            }
+            catch (Exception ex) { Log.Write("legacy temp-file cleanup", ex); }
+        }
+
+        public static string Sha256Hex(string file)
         {
             using (FileStream fs = File.OpenRead(file))
             using (SHA256 sha = SHA256.Create())
@@ -91,15 +224,27 @@ namespace LoadView
                 byte[] h = sha.ComputeHash(fs);
                 StringBuilder sb = new StringBuilder(h.Length * 2);
                 for (int i = 0; i < h.Length; i++) sb.Append(h[i].ToString("X2", CultureInfo.InvariantCulture));
-                return string.Equals(sb.ToString(), expectedHex, StringComparison.OrdinalIgnoreCase);
+                return sb.ToString();
             }
         }
 
-        // ---- CPU temperature channel (helper writes, overlay reads) ----
+        private static bool HashEquals(string file, string expectedHex)
+        {
+            return string.Equals(Sha256Hex(file), expectedHex, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ---- CPU temperature channel (SYSTEM writes to out\, the overlay reads) ----
 
         public static void WriteCpuTemp(double celsius)
         {
-            try { File.WriteAllText(CpuTempPath(), celsius.ToString("0.0", CultureInfo.InvariantCulture)); }
+            try
+            {
+                string dst = CpuTempPath(), tmp = dst + ".tmp";
+                File.WriteAllText(tmp, celsius.ToString("0.0", CultureInfo.InvariantCulture));
+                // Swap it in, so a reader never catches a truncated file.
+                if (File.Exists(dst)) File.Replace(tmp, dst, null);
+                else File.Move(tmp, dst);
+            }
             catch { }
         }
 
@@ -120,11 +265,17 @@ namespace LoadView
             return false;
         }
 
-        // ---- heartbeat (overlay writes while enabled, helper watches) ----
+        // ---- heartbeat (the overlay writes to in\ while enabled; SYSTEM only stats it) ----
 
         public static void WriteHeartbeat()
         {
-            try { File.WriteAllText(HeartbeatPath(), DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture)); }
+            try
+            {
+                string dir = InDir();
+                if (!Directory.Exists(dir)) return;   // provisioned by the elevated setup
+                File.WriteAllText(HeartbeatPath(),
+                    DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture));
+            }
             catch { }
         }
 
@@ -133,6 +284,8 @@ namespace LoadView
             try { if (File.Exists(HeartbeatPath())) File.Delete(HeartbeatPath()); } catch { }
         }
 
+        // Metadata-only read: never opens the file, so a hard link planted in the user-writable
+        // in\ folder gains nothing.
         public static bool HeartbeatFresh(double maxAgeSec)
         {
             try
@@ -144,14 +297,21 @@ namespace LoadView
             catch { return false; }
         }
 
+        // ---- diagnostics ----
+
+        // Written by the elevated setup and the SYSTEM helper. The unprivileged overlay can only
+        // read out\, so its own calls fall back to the opt-in per-user debug log.
         public static void HelperLog(string msg)
         {
+            string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+                + "  " + msg + "\r\n";
             try
             {
-                File.AppendAllText(HelperLogPath(),
-                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "  " + msg + "\r\n");
+                string dir = OutDir();
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.AppendAllText(HelperLogPath(), line);
             }
-            catch { }
+            catch { Log.Write("temp: " + msg); }
         }
     }
 }

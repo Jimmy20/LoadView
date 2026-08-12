@@ -4,11 +4,20 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.9.1";
+        public const string Version = "2.10.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.10.0",
+            "  - Accurate CPU temp now works when your Windows account is NOT an",
+            "    administrator: the reader runs as the SYSTEM account, so it can read",
+            "    the sensor (before, it silently stayed blank on managed/company PCs)",
+            "  - The one-time setup now stages the reader into an admin-only folder and",
+            "    locks down every file it creates, so the elevated task cannot be abused",
+            "  - PawnIO download is version-pinned and the signer is verified",
+            "  - New: LoadView.exe --temp-remove undoes the whole setup",
+            "",
             "2.9.1",
             "  - Refresh WAN now uses a fresh connection, so the public IP updates",
             "    correctly after a VPN / network change (no stale keep-alive route)",

@@ -198,24 +198,40 @@ The true per-core CPU temperature lives in the CPU's MSR registers, which can on
 **kernel driver** — there is no user-mode API for it. LoadView keeps this as an **opt-in** so the
 default download stays a portable, no-install, no-admin single exe.
 
-Enable **Settings → Temperatures → "Accurate CPU temp (driver)"** to turn it on. On first enable
-LoadView offers to set it up; you get **one UAC prompt**, and then:
+Enable **Settings → Temperatures → "Accurate CPU temp (driver)"** to turn it on. LoadView then offers
+to set it up; you get **one administrator prompt**, and after that the temperature appears silently on
+every launch — **including when your own Windows account is not an administrator**, which is the normal
+case on a managed work PC. What the setup does:
 
-- It installs **[PawnIO](https://pawnio.eu/)** — a free, open-source, **digitally-signed** sensor
-  driver that is **HVCI-compatible**, so accurate CPU temperature works **even with Windows Memory
-  Integrity turned on** (unlike the old WinRing0 driver, which HVCI blocks). PawnIO is downloaded
-  from its official source and its signature is verified before running; nothing is bundled in
+- Installs **[PawnIO](https://pawnio.eu/)** — a free, open-source, **digitally-signed** sensor driver
+  that is **HVCI-compatible**, so this works **even with Windows Memory Integrity turned on** (unlike
+  the old WinRing0 driver, which HVCI blocks). A pinned version is downloaded from its official source
+  and both the signature **and the publisher** are verified before it is run; nothing is bundled in
   `LoadView.exe`.
-- It registers a small **Task Scheduler** task so the elevated reader can start **silently from
-  then on — no more UAC prompts** on later launches. The overlay itself keeps running unelevated;
-  only the tiny reader is elevated (via the task).
-- The reader downloads LibreHardwareMonitor (verified by SHA-256, into `%APPDATA%\LoadView\lib`),
-  reads the CPU package temperature through PawnIO, and hands it to the overlay.
-- If anything fails (offline, or you decline the prompts), LoadView just falls back to the ACPI /
-  blank reading — nothing breaks. Diagnostics: `%APPDATA%\LoadView\helper.log`.
+- Copies the reader (LoadView itself) and **LibreHardwareMonitor** (verified by SHA-256) into
+  `C:\Program Files\LoadView\`, and registers a **Task Scheduler** task named
+  *LoadView CPU Temp Helper* that runs it as the **SYSTEM** account on demand. SYSTEM is what makes the
+  sensor readable without you being an administrator: the driver's device can only be opened by
+  SYSTEM/Administrators, and a task set to "highest available privileges" gives a standard user
+  nothing extra.
+- The task can be **started** by any interactive user but **not modified** by one, and every folder it
+  involves is locked down (`Program Files` copy and library: read-only for users; the overlay may only
+  write its heartbeat into `C:\ProgramData\LoadView\in`). That combination is deliberate — a SYSTEM task
+  that could run or load a file a normal user can overwrite would be a privilege-escalation hole.
+- The reader publishes the CPU package temperature to the overlay through
+  `C:\ProgramData\LoadView\out`. The overlay itself always stays unelevated.
+- If anything fails (offline, policy, or you decline the prompt), LoadView falls back to the ACPI /
+  blank reading — nothing breaks. Diagnostics: `C:\ProgramData\LoadView\out\helper.log`.
 
-Leave it **off** (the default) to stay completely driver-free and admin-free. This option only
-affects **CPU** temperature; GPU temperature never needs a driver.
+To undo all of it, run once from an administrator prompt — this removes the task and both folders
+(PawnIO is deliberately left installed, since other tools may use it):
+
+```
+LoadView.exe --temp-remove
+```
+
+Leave the option **off** (the default) to stay completely driver-free and admin-free. It only affects
+**CPU** temperature; GPU temperature never needs a driver.
 
 ## Notes
 

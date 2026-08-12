@@ -1,46 +1,73 @@
 using System;
 using System.Collections;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace LoadView
 {
-    // Runs elevated: "LoadView.exe --temp-helper <overlayPid>". Loads the downloaded
-    // LibreHardwareMonitor library via reflection (no compile-time dependency, so the normal build
-    // needs nothing extra), reads the true CPU package temperature through its kernel driver, and
-    // publishes it to the non-elevated overlay via TempIpc. Exits when the overlay stops (its
-    // heartbeat goes stale) or the parent process exits.
+    // Runs as SYSTEM via the scheduled task ("LoadView.exe --temp-helper"), started on demand by
+    // the overlay. Reflection-loads the LibreHardwareMonitor library that the elevated setup staged
+    // (so the normal build needs no extra reference), reads the true CPU package temperature —
+    // which requires SYSTEM/admin, since that goes through the PawnIO device — and publishes it to
+    // the unprivileged overlay through TempIpc. Exits once the overlay's heartbeat goes stale.
+    //
+    // This process is fully privileged, so it treats everything around it as untrusted: it verifies
+    // that the folders it loads code from are admin-only, never downloads anything itself, and never
+    // writes into the folder the unprivileged side can write.
     internal static class DriverTempHelper
     {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetDefaultDllDirectories(uint directoryFlags);
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool SetDllDirectory(string lpPathName);
+
+        private const uint LoadLibrarySearchSystem32 = 0x00000800;
+        private const uint LoadLibrarySearchDefaultDirs = 0x00001000;
+
+        // No process-wide mutex on purpose: a Global\ name is creatable by any interactive user, who
+        // could either squat it (leaving this helper to exit instantly, killing the feature) or
+        // create it with a DACL denying SYSTEM. Single-instancing is the task's
+        // MultipleInstancesPolicy=IgnoreNew instead.
         public static void Run(string[] argv)
         {
-            bool createdNew;
-            using (Mutex m = new Mutex(true, @"Global\LoadView_TempHelper", out createdNew))
-            {
-                if (!createdNew) return; // one helper at a time
-                try { RunCore(argv); }
-                catch (Exception ex) { TempIpc.HelperLog("helper fatal: " + ex.Message); }
-            }
+            try { RunCore(argv); }
+            catch (Exception ex)
+            { TempIpc.HelperLog("helper fatal: " + ex.GetType().Name + " " + ex.Message); }
         }
 
         private static void RunCore(string[] argv)
         {
-            int parentPid = -1;
-            if (argv.Length > 2)
-                int.TryParse(argv[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out parentPid);
-            TempIpc.HelperLog("helper start (parent=" + parentPid + ")");
+            TempIpc.HelperLog("helper start (running as " + CurrentIdentity() + ")");
 
-            if (!TempIpc.EnsureLibrary()) { TempIpc.HelperLog("library not available"); return; }
+            // Drop the current directory (and anything else ahead of System32) from the native DLL
+            // search path before loading any assembly.
+            HardenDllSearch();
 
             string libDir = TempIpc.LibDir();
+            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            // Fail closed rather than trust that setup got the ACLs right: if a non-admin can write
+            // where we load code from, this privileged process must not load it.
+            if (!SecureDir.IsAdminOnly(exeDir))
+            { TempIpc.HelperLog("helper: exe folder is not admin-only -> refusing to run"); return; }
+            if (!SecureDir.IsAdminOnly(libDir))
+            { TempIpc.HelperLog("helper: lib folder is not admin-only -> refusing to run"); return; }
+
+            // Provisioning belongs to the elevated setup. A SYSTEM process must not download a zip
+            // and load the DLLs it extracts.
+            if (!TempIpc.LibraryReady())
+            { TempIpc.HelperLog("helper: sensor library missing -> run setup again"); return; }
+
             ResolveEventHandler resolver = delegate(object s, ResolveEventArgs e)
             {
                 try
                 {
                     string name = new AssemblyName(e.Name).Name + ".dll";
-                    string path = System.IO.Path.Combine(libDir, name);
-                    return System.IO.File.Exists(path) ? Assembly.LoadFrom(path) : null;
+                    string path = Path.Combine(libDir, name);
+                    return File.Exists(path) ? Assembly.LoadFrom(path) : null;
                 }
                 catch { return null; }
             };
@@ -66,18 +93,24 @@ namespace LoadView
                 while (true)
                 {
                     if (!TempIpc.HeartbeatFresh(8.0)) { TempIpc.HelperLog("heartbeat stale -> exit"); break; }
-                    if (parentPid > 0 && !ProcessAlive(parentPid)) { TempIpc.HelperLog("parent gone -> exit"); break; }
 
                     double c;
                     if (TryReadCpu(hardwareProp, computer, out c))
                     {
                         TempIpc.WriteCpuTemp(c);
-                        if (!logged) { TempIpc.HelperLog("first CPU temp " + c.ToString("0.0", CultureInfo.InvariantCulture)); logged = true; }
+                        if (!logged)
+                        {
+                            TempIpc.HelperLog("first CPU temp " + c.ToString("0.0", CultureInfo.InvariantCulture));
+                            logged = true;
+                        }
                         idle = 0;
                     }
                     else if (++idle == 3)
                     {
-                        TempIpc.HelperLog("no CPU temperature sensor found");
+                        // Reaching this as SYSTEM means the sensor really isn't exposed — as a
+                        // medium-integrity process it just meant the PawnIO device was denied.
+                        TempIpc.HelperLog("no CPU temperature sensor found (identity "
+                            + CurrentIdentity() + ", PawnIO device open failed?)");
                     }
 
                     for (int i = 0; i < 20; i++) { Thread.Sleep(100); if (!TempIpc.HeartbeatFresh(8.0)) break; }
@@ -94,6 +127,23 @@ namespace LoadView
                 AppDomain.CurrentDomain.AssemblyResolve -= resolver;
                 TempIpc.HelperLog("helper stopped");
             }
+        }
+
+        private static void HardenDllSearch()
+        {
+            try
+            {
+                if (SetDefaultDllDirectories(LoadLibrarySearchSystem32 | LoadLibrarySearchDefaultDirs))
+                    return;
+            }
+            catch { }
+            try { SetDllDirectory(""); } catch { }
+        }
+
+        private static string CurrentIdentity()
+        {
+            try { return System.Security.Principal.WindowsIdentity.GetCurrent().Name; }
+            catch { return "?"; }
         }
 
         // Prefer the CPU package sensor (Intel "CPU Package" / AMD "Core (Tctl/Tdie)"), else the
@@ -134,12 +184,6 @@ namespace LoadView
             if (!double.IsNaN(pkg)) { celsius = pkg; return true; }
             if (best > double.MinValue) { celsius = best; return true; }
             return false;
-        }
-
-        private static bool ProcessAlive(int pid)
-        {
-            try { System.Diagnostics.Process.GetProcessById(pid); return true; }
-            catch { return false; }
         }
     }
 }

@@ -23,8 +23,10 @@ namespace LoadView
             // and does not take the overlay's single-instance mutex.
             string[] argv = Environment.GetCommandLineArgs();
             if (argv.Length > 1 && argv[1] == "--temp-helper") { DriverTempHelper.Run(argv); return; }
-            // One-time elevated setup: install the PawnIO driver + register the helper task.
-            if (argv.Length > 1 && argv[1] == "--temp-setup") { PawnIoSetup.RunSetup(); return; }
+            // One-time elevated setup: install the PawnIO driver + register the SYSTEM helper task.
+            if (argv.Length > 1 && argv[1] == "--temp-setup") { PawnIoSetup.RunSetup(argv); return; }
+            // Elevated undo: remove the task and everything the setup installed.
+            if (argv.Length > 1 && argv[1] == "--temp-remove") { PawnIoSetup.RunRemove(); return; }
 
             bool createdNew;
             _instanceMutex = new Mutex(true, @"Local\LoadView_SingleInstance", out createdNew);
@@ -33,6 +35,10 @@ namespace LoadView
             // Belt-and-suspenders with the manifest: ignored on Windows < 1703.
             try { SetProcessDpiAwarenessContext(PerMonitorV2); }
             catch { }
+
+            // Tidy up the per-user CPU-temp files that versions before 2.10 kept in %APPDATA%
+            // (the helper now runs as SYSTEM and uses %ProgramFiles% / %ProgramData% instead).
+            TempIpc.CleanLegacyUserFiles();
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
