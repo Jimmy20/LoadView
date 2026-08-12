@@ -94,13 +94,18 @@ namespace LoadView
                 {
                     if (!TempIpc.HeartbeatFresh(8.0)) { TempIpc.HelperLog("heartbeat stale -> exit"); break; }
 
-                    double c;
-                    if (TryReadCpu(hardwareProp, computer, out c))
+                    double c; bool fromPackage;
+                    // Collect the sensor inventory on the first pass only — it is fixed for the
+                    // life of the process, and it is what proves which sensor the value came from.
+                    System.Text.StringBuilder inv = logged ? null : new System.Text.StringBuilder();
+                    if (TryReadCpu(hardwareProp, computer, out c, out fromPackage, inv))
                     {
                         TempIpc.WriteCpuTemp(c);
                         if (!logged)
                         {
-                            TempIpc.HelperLog("first CPU temp " + c.ToString("0.0", CultureInfo.InvariantCulture));
+                            TempIpc.HelperLog("CPU temperature sensors: " + inv);
+                            TempIpc.HelperLog("first CPU temp " + c.ToString("0.0", CultureInfo.InvariantCulture)
+                                + (fromPackage ? " (package sensor)" : " (fallback: hottest sensor)"));
                             logged = true;
                         }
                         idle = 0;
@@ -148,9 +153,15 @@ namespace LoadView
 
         // Prefer the CPU package sensor (Intel "CPU Package" / AMD "Core (Tctl/Tdie)"), else the
         // hottest CPU temperature sensor.
-        private static bool TryReadCpu(PropertyInfo hardwareProp, object computer, out double celsius)
+        //
+        // Pass an `inventory` to have every CPU temperature sensor recorded name=value. Because the
+        // fallback silently reports the hottest sensor, a plausible-looking number is not evidence
+        // that the package sensor was the one read — the inventory is what distinguishes the two,
+        // and it is the only way to tell without a second sensor tool for comparison.
+        private static bool TryReadCpu(PropertyInfo hardwareProp, object computer, out double celsius,
+            out bool fromPackage, System.Text.StringBuilder inventory)
         {
-            celsius = 0;
+            celsius = 0; fromPackage = false;
             double pkg = double.NaN, best = double.MinValue;
             IEnumerable hardware = (IEnumerable)hardwareProp.GetValue(computer, null);
             foreach (object hw in hardware)
@@ -174,6 +185,18 @@ namespace LoadView
                     string name = "";
                     object no = st.GetProperty("Name").GetValue(se, null);
                     if (no != null) name = no.ToString();
+                    if (inventory != null)
+                    {
+                        if (inventory.Length > 0) inventory.Append(", ");
+                        inventory.Append(name).Append('=')
+                                 .Append(v.ToString("0.0", CultureInfo.InvariantCulture));
+                    }
+                    // "P-Core #1 Distance to TjMax" is thermal headroom, not a temperature, but LHM
+                    // exposes it as a Temperature sensor (measured: 24-30 while the cores read
+                    // 70-76). Left in the inventory above, kept out of the selection below, so the
+                    // hottest-sensor fallback can never return a delta as if it were a reading.
+                    if (name.IndexOf("Distance", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
                     if (name.IndexOf("Package", StringComparison.OrdinalIgnoreCase) >= 0
                         || name.IndexOf("Tctl", StringComparison.OrdinalIgnoreCase) >= 0
                         || name.IndexOf("Tdie", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -181,7 +204,7 @@ namespace LoadView
                     if (v > best) best = v;
                 }
             }
-            if (!double.IsNaN(pkg)) { celsius = pkg; return true; }
+            if (!double.IsNaN(pkg)) { celsius = pkg; fromPackage = true; return true; }
             if (best > double.MinValue) { celsius = best; return true; }
             return false;
         }

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text;
 
 namespace LoadView
 {
@@ -47,6 +48,83 @@ namespace LoadView
             catch (Exception ex)
             {
                 TempIpc.HelperLog("reparse check failed for " + path + ": " + ex.Message);
+                return true;
+            }
+        }
+
+        // Remove a directory tree that a non-admin may have planted, without ever following a
+        // reparse point into somewhere else. Fixing the DACL is not enough on its own: Harden
+        // corrects a folder's permissions but leaves the FILES already inside it, and the planter
+        // stays their owner — an owner implicitly holds WRITE_DAC, so they can grant themselves
+        // write access back. That matters because a planted `cputemp.tmp` or `helper.log` can be an
+        // NTFS hard link to a file the planter may read but not write: SYSTEM's write would then go
+        // through the link and modify the target. So setup starts from an empty tree.
+        //
+        // Deleting a hard link only removes that directory entry, which is exactly what we want.
+        //
+        // Notes go into the caller's buffer rather than the log, because helper.log lives in the
+        // very tree being wiped and is itself a file a planter could have replaced with a hard
+        // link — writing a diagnostic there before the wipe is what we are trying to avoid. The
+        // caller flushes the buffer once the tree is clean and admin-only.
+        public static void DeleteTree(string path, StringBuilder notes)
+        {
+            try
+            {
+                if (!Directory.Exists(path)) return;
+                if (IsReparsePointQuiet(path, notes))
+                {
+                    Note(notes, "wipe: refusing reparse point " + path);
+                    return;
+                }
+
+                foreach (string f in Directory.GetFiles(path))
+                    try { File.Delete(f); }
+                    catch (Exception ex) { Note(notes, "wipe: " + f + ": " + ex.Message); }
+
+                foreach (string d in Directory.GetDirectories(path))
+                    DeleteTree(d, notes);   // recursive, and each level re-checks for a reparse point
+
+                try { Directory.Delete(path, false); }
+                catch (Exception ex) { Note(notes, "wipe: rmdir " + path + ": " + ex.Message); }
+            }
+            catch (Exception ex) { Note(notes, "wipe " + path + " failed: " + ex.Message); }
+        }
+
+        // Anything that appeared between DeleteTree and Harden (a planter racing us) is removed
+        // here, once the protected DACL is in place and they can no longer create.
+        public static int WipeFiles(string dir, StringBuilder notes)
+        {
+            int n = 0;
+            try
+            {
+                if (!Directory.Exists(dir) || IsReparsePointQuiet(dir, notes)) return 0;
+                foreach (string f in Directory.GetFiles(dir))
+                {
+                    try { File.Delete(f); n++; }
+                    catch (Exception ex) { Note(notes, "wipe: " + f + ": " + ex.Message); }
+                }
+            }
+            catch (Exception ex) { Note(notes, "wipe files " + dir + ": " + ex.Message); }
+            return n;
+        }
+
+        private static void Note(StringBuilder notes, string msg)
+        {
+            if (notes != null) notes.Append(msg).Append("\n");
+        }
+
+        // Same fail-closed check as IsReparsePoint, but reporting into the buffer.
+        private static bool IsReparsePointQuiet(string path, StringBuilder notes)
+        {
+            try
+            {
+                DirectoryInfo di = new DirectoryInfo(path);
+                if (!di.Exists) return false;
+                return (di.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception ex)
+            {
+                Note(notes, "reparse check failed for " + path + ": " + ex.Message);
                 return true;
             }
         }

@@ -37,6 +37,10 @@ namespace LoadView
         // PawnIO's author. Requiring the signer's subject — not merely "some valid signature" —
         // means a validly signed installer from anybody else is refused.
         private const string InstallerSubject = "CN=namazso.eu";
+        // SHA-256 of PawnIO_setup.exe 2.2.0 as served by the pinned release URL, measured on
+        // 2026-08-12. Checked in addition to the signature, so the exact bytes are pinned too.
+        private const string InstallerSha256 =
+            "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032";
 
         // SYSTEM + Administrators full control; INTERACTIVE (S-1-5-4) read + execute, i.e. "may
         // start this task, may not modify it". D:P blocks the Tasks folder's inheritable ACEs, and
@@ -106,6 +110,11 @@ namespace LoadView
 
         // Start the elevated helper through the task — no UAC, because the task carries its own
         // privileges and INTERACTIVE has execute rights on it.
+        //
+        // Called repeatedly while the feature is on, so most calls hit MultipleInstancesPolicy
+        // IgnoreNew and are refused. Task Scheduler records that as Last Result 0x800710E0
+        // ("the operator or administrator has refused the request"), which looks like a failure in
+        // the Task Scheduler UI but is the expected steady state: the helper is already running.
         public static void RunHelperTask()
         {
             Run(SysPath("schtasks.exe"), "/Run /TN \"" + TaskName + "\"", 15000);
@@ -116,10 +125,27 @@ namespace LoadView
         public static void RunSetup(string[] argv)
         {
             string suppliedZip = argv != null && argv.Length > 2 ? argv[2] : null;
-            TempIpc.HelperLog("setup: start (running as " + CurrentIdentity() + ")");
             try
             {
-                if (!HardenDirs()) { TempIpc.HelperLog("setup: ABORT: could not secure the folders"); return; }
+                // Wipe, harden, and only then log. Order matters and each step is load-bearing:
+                //
+                //  * Wipe first, because fixing a folder's DACL leaves the files already in it and
+                //    the planter keeps ownership (hence WRITE_DAC) of them. A planted cputemp.tmp
+                //    or helper.log could be a hard link, and SYSTEM's write would follow it.
+                //  * Log last, because helper.log is itself inside the tree being wiped — so the
+                //    wipe reports into a buffer and we flush it once the tree is ours.
+                StringBuilder notes = new StringBuilder();
+                SecureDir.DeleteTree(TempIpc.SharedDir(), notes);
+                bool secured = HardenDirs();
+                int raced = SecureDir.WipeFiles(TempIpc.OutDir(), notes)
+                          + SecureDir.WipeFiles(TempIpc.StageDir(), notes);
+
+                TempIpc.HelperLog("setup: start (running as " + CurrentIdentity() + ")");
+                foreach (string n in notes.ToString().Split('\n'))
+                    if (n.Length > 0) TempIpc.HelperLog("  " + n);
+                TempIpc.HelperLog("setup: folders secured = " + secured
+                    + (raced > 0 ? " (wiped " + raced + " file(s) that appeared during hardening)" : ""));
+                if (!secured) { TempIpc.HelperLog("setup: ABORT: could not secure the folders"); return; }
 
                 StopHelper();
 
@@ -179,8 +205,7 @@ namespace LoadView
             ok &= SecureDir.Harden(TempIpc.SharedDir(), false);
             ok &= SecureDir.Harden(TempIpc.OutDir(), false);      // SYSTEM writes, users read
             ok &= SecureDir.Harden(TempIpc.InDir(), true);        // users write the heartbeat here
-            TempIpc.HelperLog("setup: folders secured = " + ok);
-            return ok;
+            return ok;   // logged by the caller, which can only write once these exist
         }
 
         // Copy ourselves into the admin-only folder and let the task run *that* copy. The source is
@@ -230,7 +255,18 @@ namespace LoadView
             catch (Exception ex)
             { TempIpc.HelperLog("setup: installer download failed: " + ex.Message); return false; }
 
-            try { TempIpc.HelperLog("setup: installer sha256 = " + TempIpc.Sha256Hex(dst)); } catch { }
+            // Pin the exact bytes as well as the signer. The URL is version-pinned, so a release
+            // asset that no longer hashes to this was replaced after the fact — refuse rather than
+            // fall back to trusting the signature alone. Both gates must pass.
+            string hash = null;
+            try { hash = TempIpc.Sha256Hex(dst); } catch (Exception ex) { TempIpc.HelperLog("setup: hashing failed: " + ex.Message); }
+            TempIpc.HelperLog("setup: installer sha256 = " + (hash ?? "(unreadable)"));
+            if (hash == null || !string.Equals(hash, InstallerSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                TempIpc.HelperLog("setup: installer hash does not match the pinned "
+                    + InstallerSha256 + " -> not running it");
+                return false;
+            }
 
             if (!SignatureTrusted(dst))
             {

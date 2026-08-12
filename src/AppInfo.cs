@@ -4,11 +4,20 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.10.0";
+        public const string Version = "2.10.1";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.10.1",
+            "  - Security fix: the one-time setup now empties its folders before using",
+            "    them. A file left there beforehand could be a hard link, and the",
+            "    system-rights reader would have written through it into the linked file",
+            "  - The PawnIO installer is now also checked against a pinned SHA-256, not",
+            "    only its signature",
+            "  - CPU temp ignores 'Distance to TjMax' sensors (headroom, not temperature)",
+            "    and the log records every sensor found plus which one was used",
+            "",
             "2.10.0",
             "  - Accurate CPU temp now works when your Windows account is NOT an",
             "    administrator: the reader runs as the SYSTEM account, so it can read",

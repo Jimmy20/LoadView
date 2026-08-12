@@ -206,8 +206,8 @@ case on a managed work PC. What the setup does:
 - Installs **[PawnIO](https://pawnio.eu/)** — a free, open-source, **digitally-signed** sensor driver
   that is **HVCI-compatible**, so this works **even with Windows Memory Integrity turned on** (unlike
   the old WinRing0 driver, which HVCI blocks). A pinned version is downloaded from its official source
-  and both the signature **and the publisher** are verified before it is run; nothing is bundled in
-  `LoadView.exe`.
+  and its **SHA-256**, its signature **and** its publisher are all verified before it is run; nothing is
+  bundled in `LoadView.exe`.
 - Copies the reader (LoadView itself) and **LibreHardwareMonitor** (verified by SHA-256) into
   `C:\Program Files\LoadView\`, and registers a **Task Scheduler** task named
   *LoadView CPU Temp Helper* that runs it as the **SYSTEM** account on demand. SYSTEM is what makes the
@@ -218,6 +218,10 @@ case on a managed work PC. What the setup does:
   involves is locked down (`Program Files` copy and library: read-only for users; the overlay may only
   write its heartbeat into `C:\ProgramData\LoadView\in`). That combination is deliberate — a SYSTEM task
   that could run or load a file a normal user can overwrite would be a privilege-escalation hole.
+- Setup also **empties** those folders before using them, and never writes into a file that already
+  exists. Correcting a folder's permissions is not enough on its own: files put there beforehand stay
+  owned by whoever created them, and one of them could be a *hard link* — the reader's write would then
+  land on the linked file instead, with SYSTEM's rights.
 - The reader publishes the CPU package temperature to the overlay through
   `C:\ProgramData\LoadView\out`. The overlay itself always stays unelevated.
 - If anything fails (offline, policy, or you decline the prompt), LoadView falls back to the ACPI /

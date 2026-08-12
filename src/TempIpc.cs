@@ -240,7 +240,18 @@ namespace LoadView
             try
             {
                 string dst = CpuTempPath(), tmp = dst + ".tmp";
-                File.WriteAllText(tmp, celsius.ToString("0.0", CultureInfo.InvariantCulture));
+
+                // Never write into an entry that is already there. out\ is admin-only, so this is
+                // belt-and-braces behind setup's wipe — but a cputemp.tmp planted before setup ran
+                // could be a hard link, and WriteAllText would follow it and modify the target as
+                // SYSTEM. Delete, then CreateNew: an entry we did not just create fails the write
+                // instead of redirecting it.
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                using (FileStream fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    byte[] b = Encoding.ASCII.GetBytes(celsius.ToString("0.0", CultureInfo.InvariantCulture));
+                    fs.Write(b, 0, b.Length);
+                }
                 // Swap it in, so a reader never catches a truncated file.
                 if (File.Exists(dst)) File.Replace(tmp, dst, null);
                 else File.Move(tmp, dst);
@@ -301,14 +312,20 @@ namespace LoadView
 
         // Written by the elevated setup and the SYSTEM helper. The unprivileged overlay can only
         // read out\, so its own calls fall back to the opt-in per-user debug log.
+        //
+        // Deliberately never creates the directory. Users may create subfolders under
+        // C:\ProgramData and CREATOR OWNER gets full control there, so a non-elevated caller
+        // creating out\ would leave a user-owned folder with no hardened DACL — the exact starting
+        // state SecureDir.Harden exists to defeat. Only the elevated setup makes these folders (via
+        // Harden), which keeps "the feature off touches nothing under C:\ProgramData" a property of
+        // the code rather than of which log lines happen to be reachable today.
         public static void HelperLog(string msg)
         {
             string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
                 + "  " + msg + "\r\n";
             try
             {
-                string dir = OutDir();
-                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (!Directory.Exists(OutDir())) { Log.Write("temp: " + msg); return; }
                 File.AppendAllText(HelperLogPath(), line);
             }
             catch { Log.Write("temp: " + msg); }
