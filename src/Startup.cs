@@ -60,9 +60,10 @@ namespace LoadView
             if (shellType == null) { Log.Write("Startup: WScript.Shell unavailable"); return; }
 
             object shell = Activator.CreateInstance(shellType);
+            object sc = null;
             try
             {
-                object sc = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell,
+                sc = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell,
                     new object[] { lnkPath });
                 Type t = sc.GetType();
                 string exe = Application.ExecutablePath;
@@ -72,10 +73,11 @@ namespace LoadView
                 t.InvokeMember("Description", BindingFlags.SetProperty, null, sc,
                     new object[] { "LoadView system monitor overlay" });
                 t.InvokeMember("Save", BindingFlags.InvokeMethod, null, sc, null);
-                Marshal.ReleaseComObject(sc);
             }
             finally
             {
+                // Released here rather than after Save, so a throwing property set can't leak it.
+                if (sc != null) try { Marshal.ReleaseComObject(sc); } catch { }
                 Marshal.ReleaseComObject(shell);
             }
         }

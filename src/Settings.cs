@@ -315,8 +315,39 @@ namespace LoadView
                     s.Positions[sig] = new int[] { px, py };
             }
 
+            s.ClampAll();
             return s;
         }
+
+        // settings.ini is a plain text file that invites hand-editing, and an out-of-range value is
+        // not merely ugly: a font size of 0 makes the Font constructor throw *inside OnPaint*, so
+        // the overlay would die on every launch until the file was deleted by hand, and a width of
+        // 999999 produces a window nobody can reach. The dialog already enforces these ranges
+        // (SettingsForm.AddNum / AddSize), so this is the same contract applied to the file.
+        private void ClampAll()
+        {
+            Width = C(Width, 120, 1200);
+            GraphHeight = C(GraphHeight, 20, 600);
+            DriveRowHeight = C(DriveRowHeight, 12, 200);
+            RefreshMs = C(RefreshMs, 200, 10000);
+            IpLanRefreshSec = C(IpLanRefreshSec, 2, 3600);
+            IpWanRefreshSec = C(IpWanRefreshSec, 30, 86400);
+
+            ClockSize = C(ClockSize, 6f, 200f);
+            DateSize = C(DateSize, 6f, 200f);
+            DaySize = C(DaySize, 6f, 200f);
+            DriveLabelSize = C(DriveLabelSize, 6f, 72f);
+            ListSize = C(ListSize, 6f, 72f);
+            IpSize = C(IpSize, 6f, 72f);
+            NetTotalsSize = C(NetTotalsSize, 6f, 72f);
+
+            if (Opacity < 0.30) Opacity = 0.30; else if (Opacity > 1.0) Opacity = 1.0;
+            TempHotC = C(TempHotC, 30.0, 120.0);
+        }
+
+        private static int C(int v, int lo, int hi) { if (v < lo) return lo; if (v > hi) return hi; return v; }
+        private static float C(float v, float lo, float hi) { if (v < lo) return lo; if (v > hi) return hi; return v; }
+        private static double C(double v, double lo, double hi) { if (v < lo) return lo; if (v > hi) return hi; return v; }
 
         public void Save() { SaveTo(FilePath(), true); }
 

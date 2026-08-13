@@ -63,6 +63,10 @@ namespace LoadView
 
         public PdhQuery()
         {
+            // If pdh.dll is missing from System32 while a file of that name sits next to the exe,
+            // NativeGuard blocks it: better every metric reads "n/a" than to run someone else's
+            // pdh.dll. IsValid already covers that path for every caller.
+            if (NativeGuard.Blocked("pdh.dll")) { _query = IntPtr.Zero; return; }
             if (PdhOpenQuery(null, IntPtr.Zero, out _query) != ERROR_SUCCESS)
                 _query = IntPtr.Zero;
         }
@@ -138,6 +142,12 @@ namespace LoadView
             {
                 PdhCloseQuery(_query);
                 _query = IntPtr.Zero;
+            }
+            if (_arrBuf != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_arrBuf);   // grown in ReadArray; nothing else releases it
+                _arrBuf = IntPtr.Zero;
+                _arrBufSize = 0;
             }
         }
     }
