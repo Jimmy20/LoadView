@@ -34,9 +34,15 @@ namespace LoadView
         private const string MinDriverVersion = "2.2.0";
         private const string InstallerUrl =
             "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe";
-        // PawnIO's author. Requiring the signer's subject — not merely "some valid signature" —
-        // means a validly signed installer from anybody else is refused.
-        private const string InstallerSubject = "CN=namazso.eu";
+        // PawnIO's author. Requiring the signer — not merely "some valid signature" — means a
+        // validly signed installer from anybody else is refused.
+        //
+        // The subject is compared as a whole RDN, never as a substring: "CN=namazso.eu" occurs
+        // inside "CN=namazso.eu.example.org" too, and a certificate for such a domain is obtainable
+        // by whoever controls it. The thumbprint (SHA-1 of the certificate, read off the real
+        // installer on 2026-08-12) is the exact identity and carries no parsing ambiguity.
+        private const string InstallerCn = "namazso.eu";
+        private const string InstallerThumbprint = "F380DCC9F706E2756A5047B832FFE719E1BC35F5";
         // SHA-256 of PawnIO_setup.exe 2.2.0 as served by the pinned release URL, measured on
         // 2026-08-12. Checked in addition to the signature, so the exact bytes are pinned too.
         private const string InstallerSha256 =
@@ -199,12 +205,15 @@ namespace LoadView
         private static bool HardenDirs()
         {
             bool ok = true;
-            ok &= SecureDir.Harden(TempIpc.ProgDir(), false);     // Users: read + execute
-            ok &= SecureDir.Harden(TempIpc.LibDir(), false);
-            ok &= SecureDir.Harden(TempIpc.StageDir(), false);
-            ok &= SecureDir.Harden(TempIpc.SharedDir(), false);
-            ok &= SecureDir.Harden(TempIpc.OutDir(), false);      // SYSTEM writes, users read
-            ok &= SecureDir.Harden(TempIpc.InDir(), true);        // users write the heartbeat here
+            ok &= SecureDir.Harden(TempIpc.ProgDir(), UsersAccess.ReadExecute);
+            ok &= SecureDir.Harden(TempIpc.LibDir(), UsersAccess.ReadExecute);
+            // Nothing unprivileged reads stage\ — only this elevated setup writes there. Keeping
+            // users out matters because whatever path is handed to --temp-setup gets copied in:
+            // with Users:R that turned an elevated run into a way to expose any file it can read.
+            ok &= SecureDir.Harden(TempIpc.StageDir(), UsersAccess.None);
+            ok &= SecureDir.Harden(TempIpc.SharedDir(), UsersAccess.ReadExecute);
+            ok &= SecureDir.Harden(TempIpc.OutDir(), UsersAccess.ReadExecute);   // SYSTEM writes, users read
+            ok &= SecureDir.Harden(TempIpc.InDir(), UsersAccess.Modify);         // the heartbeat lands here
             return ok;   // logged by the caller, which can only write once these exist
         }
 
@@ -238,12 +247,16 @@ namespace LoadView
             string dst = Path.Combine(TempIpc.StageDir(), "PawnIO_setup.exe");
             try
             {
-                try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+                // OR it in: this property is process-global, so assigning would drop TLS 1.3 and
+                // whatever else the system default enables.
+                try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
                 using (WebClient wc = new WebClient())
                 {
                     try
                     {
-                        wc.UseDefaultCredentials = true;
+                        // Credentials go on the PROXY only. Setting them on the client makes the
+                        // request answer a 401 Negotiate/NTLM challenge from the *target* too, which
+                        // hands a Net-NTLM hash to whatever answers for that host.
                         IWebProxy px = WebRequest.GetSystemWebProxy();
                         px.Credentials = CredentialCache.DefaultCredentials;
                         wc.Proxy = px;
@@ -298,13 +311,41 @@ namespace LoadView
                 outp = outp.Trim();
                 TempIpc.HelperLog("setup: installer signature = " + outp);
 
-                bool valid = outp.StartsWith("Valid", StringComparison.OrdinalIgnoreCase);
-                bool signer = outp.IndexOf(InstallerSubject, StringComparison.OrdinalIgnoreCase) >= 0;
-                if (!valid) TempIpc.HelperLog("setup: signature status is not Valid");
-                if (!signer) TempIpc.HelperLog("setup: signer is not " + InstallerSubject);
-                return valid && signer;
+                // Parse the three fields instead of searching the whole line: a match anywhere used
+                // to satisfy the signer test, including inside the thumbprint or a longer domain.
+                string[] parts = outp.Split('|');
+                if (parts.Length < 3)
+                { TempIpc.HelperLog("setup: signature output not understood -> refusing"); return false; }
+
+                string status = parts[0].Trim();
+                string subject = parts[1].Trim();
+                string thumb = parts[2].Trim().Replace(" ", "");
+
+                bool valid = string.Equals(status, "Valid", StringComparison.OrdinalIgnoreCase);
+                bool tp = string.Equals(thumb, InstallerThumbprint, StringComparison.OrdinalIgnoreCase);
+                bool cn = SubjectHasCn(subject, InstallerCn);
+
+                if (!valid) TempIpc.HelperLog("setup: signature status is '" + status + "', not Valid");
+                if (!tp) TempIpc.HelperLog("setup: certificate thumbprint is not " + InstallerThumbprint);
+                if (!cn) TempIpc.HelperLog("setup: signer CN is not " + InstallerCn);
+                return valid && tp && cn;
             }
             catch (Exception ex) { TempIpc.HelperLog("setup: signature check failed: " + ex.Message); return false; }
+        }
+
+        // True when the certificate subject carries exactly CN=<cn> as one of its comma-separated
+        // RDNs — so "CN=namazso.eu.example.org" and "O=CN=namazso.eu" both fail, while the real
+        // "E=admin@namazso.eu, CN=namazso.eu, O=namazso, L=Debrecen, C=HU" passes.
+        private static bool SubjectHasCn(string subject, string cn)
+        {
+            if (string.IsNullOrEmpty(subject)) return false;
+            string[] rdns = subject.Split(',');
+            for (int i = 0; i < rdns.Length; i++)
+            {
+                string rdn = rdns[i].Trim().Trim('"');
+                if (string.Equals(rdn, "CN=" + cn, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         // Register the on-demand task. Everything the reader needs is explicit here rather than
@@ -477,16 +518,28 @@ namespace LoadView
                 psi.RedirectStandardError = true;
                 // Never inherit a user-writable working directory into an elevated child.
                 psi.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
-                Process p = Process.Start(psi);
-                if (p == null) return -1;
-                string so = p.StandardOutput.ReadToEnd();
-                string se = p.StandardError.ReadToEnd();
+                // Both pipes must be drained concurrently. Reading stdout to completion and only
+                // then stderr is a deadlock: a child that fills the ~4 KB stderr buffer blocks
+                // writing, never closes stdout, and ReadToEnd() never returns — so WaitForExit is
+                // never reached and the timeout below cannot fire. That would hang an elevated
+                // setup indefinitely on a prompt the user already approved.
+                StringBuilder outBuf = new StringBuilder(), errBuf = new StringBuilder();
+                Process p = new Process();
+                p.StartInfo = psi;
+                p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
+                { if (e.Data != null) outBuf.Append(e.Data).Append(' '); };
+                p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
+                { if (e.Data != null) errBuf.Append(e.Data).Append(' '); };
+                if (!p.Start()) return -1;
+                p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
                 if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return -2; }
+                p.WaitForExit();   // the timed overload doesn't wait for the async readers to finish
 
                 // Log why it failed — without this a non-zero exit code is a dead end to diagnose.
                 if (p.ExitCode != 0 && logFailure)
                 {
-                    string msg = (se + " " + so).Replace("\r", " ").Replace("\n", " ").Trim();
+                    string msg = (errBuf.ToString() + " " + outBuf.ToString()).Replace("\r", " ").Replace("\n", " ").Trim();
                     if (msg.Length > 300) msg = msg.Substring(0, 300);
                     if (msg.Length > 0)
                         TempIpc.HelperLog("  " + Path.GetFileName(file) + " rc=" + p.ExitCode + ": " + msg);
@@ -510,12 +563,20 @@ namespace LoadView
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
                 psi.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
-                Process p = Process.Start(psi);
-                if (p == null) return null;
-                string outp = p.StandardOutput.ReadToEnd();
-                p.StandardError.ReadToEnd();
+
+                // Same reason as Run(): drain both pipes asynchronously, or the timeout is a lie.
+                StringBuilder outBuf = new StringBuilder();
+                Process p = new Process();
+                p.StartInfo = psi;
+                p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
+                { if (e.Data != null) outBuf.Append(e.Data); };
+                p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { };
+                if (!p.Start()) return null;
+                p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
                 if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return null; }
-                return outp;
+                p.WaitForExit();   // flush the async readers before the caller parses the output
+                return outBuf.ToString();
             }
             catch { return null; }
         }

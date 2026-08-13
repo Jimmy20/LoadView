@@ -14,6 +14,14 @@ namespace LoadView
     //    (CI)(WD,AD) and gives CREATOR OWNER full control on what they create), so a folder that
     //    already exists when setup runs is untrusted. We take ownership and REPLACE the whole
     //    DACL — `icacls /grant` only merges, and so cannot remove an ACE someone planted first.
+    // What BUILTIN\Users may do in a hardened directory.
+    internal enum UsersAccess
+    {
+        None,          // nothing at all — for the staging dir, which only elevated code touches
+        ReadExecute,   // read + run: the exe copy, the sensor library, and out\
+        Modify         // the one folder the unprivileged overlay writes its heartbeat into
+    }
+
     internal static class SecureDir
     {
         // Rights that let a principal tamper with content: write it, delete it, or re-ACL it.
@@ -130,9 +138,8 @@ namespace LoadView
         }
 
         // Create (or take over) a directory with a protected DACL: SYSTEM + Administrators full,
-        // BUILTIN\Users read+execute — or Modify for the single folder the unprivileged overlay
-        // writes its heartbeat into. Must run elevated.
-        public static bool Harden(string path, bool usersMayWrite)
+        // and whatever `users` says for BUILTIN\Users. Must run elevated.
+        public static bool Harden(string path, UsersAccess users)
         {
             try
             {
@@ -153,8 +160,11 @@ namespace LoadView
 
                 Allow(ds, WellKnownSidType.LocalSystemSid, FileSystemRights.FullControl);
                 Allow(ds, WellKnownSidType.BuiltinAdministratorsSid, FileSystemRights.FullControl);
-                Allow(ds, WellKnownSidType.BuiltinUsersSid,
-                    usersMayWrite ? FileSystemRights.Modify : FileSystemRights.ReadAndExecute);
+                if (users == UsersAccess.ReadExecute)
+                    Allow(ds, WellKnownSidType.BuiltinUsersSid, FileSystemRights.ReadAndExecute);
+                else if (users == UsersAccess.Modify)
+                    Allow(ds, WellKnownSidType.BuiltinUsersSid, FileSystemRights.Modify);
+                // UsersAccess.None: no ACE at all, so nothing unprivileged can even read the folder.
 
                 di.SetAccessControl(ds);
                 return true;
@@ -176,12 +186,28 @@ namespace LoadView
         // True when nothing outside SYSTEM / Administrators / TrustedInstaller can modify this
         // directory. The SYSTEM helper checks its own folder and lib\ before loading any assembly,
         // so a mis-provisioned install fails closed instead of loading whatever it happens to find.
+        //
+        // The OWNER is checked as well as the DACL, and that is not belt-and-braces: an owner
+        // implicitly holds WRITE_DAC, so a directory owned by a non-admin can have a perfectly
+        // admin-only DACL right up to the moment its owner rewrites it. Judging by the DACL alone
+        // is the same mistake that let a planted file survive Harden in v2.10.0 — permissions do
+        // not tell you who controls an object.
         public static bool IsAdminOnly(string path)
         {
             try
             {
                 if (IsReparsePoint(path)) return false;
-                DirectorySecurity ds = Directory.GetAccessControl(path, AccessControlSections.Access);
+                DirectorySecurity ds = Directory.GetAccessControl(path,
+                    AccessControlSections.Access | AccessControlSections.Owner);
+
+                SecurityIdentifier owner = ds.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                if (owner == null || !Trusted(owner))
+                {
+                    TempIpc.HelperLog("acl: " + path + " is owned by "
+                        + (owner == null ? "(unreadable)" : owner.Value) + " -> can be re-ACLed at will");
+                    return false;
+                }
+
                 foreach (FileSystemAccessRule r in
                          ds.GetAccessRules(true, true, typeof(SecurityIdentifier)))
                 {

@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -174,9 +175,10 @@ namespace LoadView
                 req.KeepAlive = false;   // fresh connection so a VPN / network change re-routes the request
                 req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                 using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
                 {
-                    string txt = sr.ReadToEnd().Trim();
+                    // Capped read: an IP is at most 45 characters, so there is no reason to pull an
+                    // unbounded body into memory just to reject it afterwards.
+                    string txt = ReadCapped(resp, 256).Trim();
                     if (txt.Length > 0 && txt.Length <= 45) ip = txt;
                 }
             }
@@ -211,11 +213,15 @@ namespace LoadView
                     req.KeepAlive = false;
                     req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                     using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                    using (StreamReader sr = new StreamReader(resp.GetResponseStream()))
                     {
-                        string json = sr.ReadToEnd();
+                        string json = ReadCapped(resp, 8 * 1024);
                         country = Extract(json, "\"country\"\\s*:\\s*\"([^\"]*)\"");
+                        if (country.Length > 64) country = country.Substring(0, 64);
                         cc = Extract(json, "\"country_code\"\\s*:\\s*\"([^\"]*)\"").ToLowerInvariant();
+                        // This value ends up in a file name, and two characters are enough to do
+                        // damage: "c:" or "\x" make Path.Combine return a rooted path, so the write
+                        // would land outside the flags folder entirely. Only a-z is a country code.
+                        if (!IsCountryCode(cc)) cc = "";
                     }
                 }
                 catch { }
@@ -225,7 +231,7 @@ namespace LoadView
             // Ensure the flag image exists whenever it's enabled — independent of the geo gate above, so
             // it also downloads when the flag is switched on after the country was already resolved (or a
             // previous download failed). Throttled so a failing flagcdn isn't hammered.
-            if (FlagEnabled && cc != null && cc.Length == 2)
+            if (FlagEnabled && IsCountryCode(cc))
             {
                 string fp = FlagPath(cc);
                 if (fp != null && !File.Exists(fp) && (DateTime.UtcNow - _lastFlagAttempt).TotalSeconds >= 8)
@@ -242,9 +248,37 @@ namespace LoadView
             catch { return ""; }
         }
 
-        // Download the small country flag PNG once and cache it locally.
+        // Exactly two ASCII letters. Anything else came from a service that is lying to us, and it
+        // is about to be pasted into a path and a URL.
+        private static bool IsCountryCode(string cc)
+        {
+            if (cc == null || cc.Length != 2) return false;
+            for (int i = 0; i < 2; i++)
+                if (cc[i] < 'a' || cc[i] > 'z') return false;
+            return true;
+        }
+
+        // Read at most maxBytes of a response body. Third-party endpoints are not trusted to be
+        // finite: without a cap, one endless reply is a memory-exhaustion bug.
+        private static string ReadCapped(HttpWebResponse resp, int maxBytes)
+        {
+            if (resp.ContentLength > maxBytes) return "";
+            using (Stream rs = resp.GetResponseStream())
+            {
+                byte[] buf = new byte[maxBytes];
+                int total = 0, n;
+                while (total < maxBytes && (n = rs.Read(buf, total, maxBytes - total)) > 0) total += n;
+                return Encoding.UTF8.GetString(buf, 0, total);
+            }
+        }
+
+        // Download the small country flag PNG once and cache it locally. A 40px-wide flag is a few
+        // hundred bytes, so the copy is capped: an endless reply must not be able to fill the disk.
+        private const int MaxFlagBytes = 64 * 1024;
+
         private static void EnsureFlag(string cc)
         {
+            if (!IsCountryCode(cc)) return;
             string path = FlagPath(cc);
             if (path == null || File.Exists(path)) return;
             string dir = Path.GetDirectoryName(path);
@@ -254,9 +288,22 @@ namespace LoadView
             req.Timeout = 5000;
             req.UserAgent = "LoadView";
             using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-            using (Stream rs = resp.GetResponseStream())
-            using (FileStream fs = File.Create(path))
-                rs.CopyTo(fs);
+            {
+                if (resp.ContentLength > MaxFlagBytes) return;
+                using (Stream rs = resp.GetResponseStream())
+                using (FileStream fs = File.Create(path))
+                {
+                    byte[] buf = new byte[8 * 1024];
+                    int total = 0, n;
+                    while ((n = rs.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        total += n;
+                        if (total > MaxFlagBytes)
+                        { fs.Close(); try { File.Delete(path); } catch { } return; }
+                        fs.Write(buf, 0, n);
+                    }
+                }
+            }
         }
 
         public void Dispose()

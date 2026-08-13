@@ -166,6 +166,7 @@ namespace LoadView
         {
             if (_nvmlTried) return _nvmlReady;
             _nvmlTried = true;
+            if (NativeGuard.Blocked("nvml.dll")) { _nvmlReady = false; return false; }
             try { _nvmlReady = (NvmlInit() == 0); }
             catch (Exception ex) { _nvmlReady = false; Log.Write("NVML init (no NVIDIA driver?)", ex); }
             return _nvmlReady;

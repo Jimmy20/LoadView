@@ -133,6 +133,7 @@ namespace LoadView
         {
             if (_tried) return _ctx != IntPtr.Zero;
             _tried = true;
+            if (NativeGuard.Blocked("atiadlxx.dll")) return false;
             try
             {
                 IntPtr ctx = IntPtr.Zero;
@@ -394,6 +395,7 @@ namespace LoadView
         {
             if (_tried) return _ready;
             _tried = true;
+            if (NativeGuard.Blocked("ControlLib.dll")) return false;
             try
             {
                 if (!Init(IntelGcl.CTL_INIT_FLAG_USE_LEVEL_ZERO) && !Init(0)) return false;

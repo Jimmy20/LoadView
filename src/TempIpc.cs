@@ -39,6 +39,9 @@ namespace LoadView
             "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.6/LibreHardwareMonitor.zip";
         private const string LhmSha256 =
             "086D9F1B5A99E643EDC2CFAAAC16051685B551E4C5AC0B32A57C58C0E529C001";
+        // Sanity cap for a caller-supplied zip: the real one is ~1.5 MB, so anything near this is
+        // already wrong and not worth hashing.
+        private const long MaxLhmZipBytes = 64L * 1024 * 1024;
 
         // ---- paths: code (admin-only) ----
 
@@ -117,19 +120,19 @@ namespace LoadView
                 string zip = Path.Combine(stage, "lhm-" + LhmVersion + ".zip");
                 try { if (File.Exists(zip)) File.Delete(zip); } catch { }
 
-                if (!string.IsNullOrEmpty(suppliedZip) && File.Exists(suppliedZip))
+                if (SuppliedZipAcceptable(suppliedZip))
                 {
                     File.Copy(suppliedZip, zip, true);
                     HelperLog("lib: using the zip the overlay downloaded");
                 }
                 else
                 {
-                    try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+                    try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
                     using (WebClient wc = new WebClient())
                     {
                         try
                         {
-                            wc.UseDefaultCredentials = true;
+                            // Proxy credentials only — see the note in PawnIoSetup.EnsureDriver.
                             IWebProxy px = WebRequest.GetSystemWebProxy();
                             px.Credentials = CredentialCache.DefaultCredentials;
                             wc.Proxy = px;
@@ -166,6 +169,34 @@ namespace LoadView
             catch (Exception ex) { HelperLog("EnsureLibraryElevated: " + ex.Message); return false; }
         }
 
+        // Decide whether the path handed to "--temp-setup <path>" may be copied into the staging
+        // folder — and hash it BEFORE copying, not after.
+        //
+        // This runs elevated with a caller-supplied path, so it is the one place where an
+        // unprivileged (or merely careless) caller picks a file a privileged process will read. With
+        // the copy happening first, naming something like C:\Windows\System32\config\SAM put its
+        // bytes into stage\ until the hash check removed them again. Checking the source first means
+        // a file that isn't the pinned release is never copied anywhere; the copy is then re-hashed
+        // by the caller, which closes the swap-in-between window.
+        private static bool SuppliedZipAcceptable(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try
+            {
+                FileInfo fi = new FileInfo(path);
+                if (!fi.Exists) return false;
+                // A reparse point could point anywhere, including somewhere only SYSTEM can read.
+                if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+                { HelperLog("lib: supplied zip is a reparse point -> ignoring it"); return false; }
+                if (fi.Length > MaxLhmZipBytes)
+                { HelperLog("lib: supplied zip is " + fi.Length + " bytes -> ignoring it"); return false; }
+                if (!HashEquals(path, LhmSha256))
+                { HelperLog("lib: supplied zip is not the pinned release -> ignoring it"); return false; }
+                return true;
+            }
+            catch (Exception ex) { HelperLog("lib: supplied zip rejected: " + ex.Message); return false; }
+        }
+
         // Fetch the pinned zip in the *user's* context. An elevated process — possibly running under
         // a different admin account — may not have the credentials a corporate proxy wants, whereas
         // this one demonstrably does. The elevated side re-hashes whatever it is handed, so this is a
@@ -177,12 +208,11 @@ namespace LoadView
                 string p = Path.Combine(Path.GetTempPath(), "LoadView-lhm-" + LhmVersion + ".zip");
                 if (File.Exists(p) && HashEquals(p, LhmSha256)) return p;
 
-                try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
+                try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
                 using (WebClient wc = new WebClient())
                 {
                     try
                     {
-                        wc.UseDefaultCredentials = true;
                         IWebProxy px = WebRequest.GetSystemWebProxy();
                         px.Credentials = CredentialCache.DefaultCredentials;
                         wc.Proxy = px;
@@ -326,6 +356,14 @@ namespace LoadView
             try
             {
                 if (!Directory.Exists(OutDir())) { Log.Write("temp: " + msg); return; }
+                // Self-truncate like Log.Write: this file lives in out\, which is read-only for
+                // users, so nobody but an administrator could ever clean it up by hand.
+                try
+                {
+                    FileInfo fi = new FileInfo(HelperLogPath());
+                    if (fi.Exists && fi.Length > 256 * 1024) File.Delete(HelperLogPath());
+                }
+                catch { }
                 File.AppendAllText(HelperLogPath(), line);
             }
             catch { Log.Write("temp: " + msg); }

@@ -10,6 +10,12 @@ namespace LoadView
         [DllImport("user32.dll")]
         private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetDefaultDllDirectories(uint directoryFlags);
+
+        private const uint LoadLibrarySearchUserDirs = 0x00000400;
+        private const uint LoadLibrarySearchSystem32 = 0x00000800;
+
         // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
         private static readonly IntPtr PerMonitorV2 = new IntPtr(-4);
 
@@ -19,6 +25,16 @@ namespace LoadView
         [STAThread]
         private static void Main()
         {
+            // Before anything can trigger a native load. Hardening the search order helps for
+            // loads that go through the normal search (including DLLs the vendor libraries pull in
+            // themselves), but on its own it does NOT stop a DLL planted next to the exe: .NET
+            // resolves DllImport by probing the application directory with an explicit full path,
+            // which no search-order flag applies to. NativeGuard is what actually closes that —
+            // see the measurement described there.
+            try { SetDefaultDllDirectories(LoadLibrarySearchSystem32 | LoadLibrarySearchUserDirs); }
+            catch { }
+            NativeGuard.Init();
+
             // Elevated CPU-temperature driver helper (opt-in). Runs headless, no message loop,
             // and does not take the overlay's single-instance mutex.
             string[] argv = Environment.GetCommandLineArgs();
