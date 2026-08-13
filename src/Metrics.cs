@@ -176,6 +176,12 @@ namespace LoadView
         private static readonly string[] VirtualNic = { "loopback", "isatap", "teredo", "pseudo" };
 
         // Sum real network adapters, skipping loopback / tunnel pseudo-interfaces.
+        //
+        // The lowercased copy looks like waste, and replacing it with
+        // IndexOf(..., OrdinalIgnoreCase) was tried — then measured, and it came out about twice as
+        // slow (.NET Framework routes ignore-case IndexOf through globalization code, while
+        // ToLowerInvariant plus an ordinal search stays on the fast path). Both are far below a
+        // millisecond per tick, so the faster one wins and the allocation stays.
         private static double SumNet(List<NamedValue> items)
         {
             double sum = 0;
@@ -194,49 +200,86 @@ namespace LoadView
         // "pid_1348_luid_..._phys_0_eng_0_engtype_3d". For each physical adapter we sum
         // the instances of each engine type, take the busiest engine type, and the
         // headline figure is the busiest adapter.
-        private static double ComputeGpu(List<NamedValue> items)
+        // Runs every tick over every GPU-engine instance, of which a busy machine has dozens to
+        // hundreds — so it allocates nothing per tick. It used to build "phys|engtype" keys out of
+        // two Substring calls per instance and two fresh Dictionaries per tick, which made this the
+        // app's largest source of garbage by a wide margin.
+        //
+        // Instead the adapter index is parsed straight to an int, the engine type is compared in
+        // place inside the instance name (EngKey), and both dictionaries are reused.
+        private readonly Dictionary<EngKey, double> _engSums =
+            new Dictionary<EngKey, double>(EngKeyComparer.Instance);
+        private readonly Dictionary<int, double> _physMax = new Dictionary<int, double>();
+
+        private double ComputeGpu(List<NamedValue> items)
         {
-            Dictionary<string, double> engSums = new Dictionary<string, double>();
+            _engSums.Clear();
             foreach (NamedValue nv in items)
             {
                 string name = nv.Name == null ? "" : nv.Name;
-                string phys = Extract(name, "phys_", '_');
-                string eng = ExtractToEnd(name, "engtype_");
-                string key = phys + "|" + eng;
+                EngKey k;
+                k.Name = name;
+                k.Phys = ParseIndex(name, "phys_");
+                int e = name.IndexOf("engtype_", StringComparison.Ordinal);
+                k.Start = e < 0 ? 0 : e + 8;
+                k.Len = e < 0 ? 0 : name.Length - k.Start;
+
                 double cur;
-                if (engSums.TryGetValue(key, out cur)) engSums[key] = cur + nv.Value;
-                else engSums[key] = nv.Value;
+                if (_engSums.TryGetValue(k, out cur)) _engSums[k] = cur + nv.Value;
+                else _engSums[k] = nv.Value;
             }
 
-            Dictionary<string, double> physMax = new Dictionary<string, double>();
-            foreach (KeyValuePair<string, double> kv in engSums)
+            _physMax.Clear();
+            foreach (KeyValuePair<EngKey, double> kv in _engSums)
             {
-                int bar = kv.Key.IndexOf('|');
-                string phys = bar >= 0 ? kv.Key.Substring(0, bar) : kv.Key;
                 double cur;
-                if (physMax.TryGetValue(phys, out cur)) physMax[phys] = Math.Max(cur, kv.Value);
-                else physMax[phys] = kv.Value;
+                if (_physMax.TryGetValue(kv.Key.Phys, out cur))
+                    _physMax[kv.Key.Phys] = Math.Max(cur, kv.Value);
+                else _physMax[kv.Key.Phys] = kv.Value;
             }
 
             double best = 0;
-            foreach (double v in physMax.Values) if (v > best) best = v;
+            foreach (double v in _physMax.Values) if (v > best) best = v;
             return best;
         }
 
-        private static string Extract(string s, string marker, char stop)
+        // "..._phys_0_eng_..." -> 0; -1 when the marker or the digits are missing.
+        private static int ParseIndex(string s, string marker)
         {
             int i = s.IndexOf(marker, StringComparison.Ordinal);
-            if (i < 0) return "";
-            int start = i + marker.Length;
-            int end = s.IndexOf(stop, start);
-            return end > start ? s.Substring(start, end - start) : s.Substring(start);
+            if (i < 0) return -1;
+            int p = i + marker.Length, n = 0, digits = 0;
+            while (p < s.Length && s[p] >= '0' && s[p] <= '9')
+            { n = n * 10 + (s[p] - '0'); p++; digits++; if (digits > 9) break; }
+            return digits == 0 ? -1 : n;
         }
 
-        private static string ExtractToEnd(string s, string marker)
+        // An engine-type group: the adapter index plus a slice of the instance name, so grouping
+        // needs no substring.
+        private struct EngKey
         {
-            int i = s.IndexOf(marker, StringComparison.Ordinal);
-            if (i < 0) return "";
-            return s.Substring(i + marker.Length);
+            public string Name;
+            public int Phys;
+            public int Start;
+            public int Len;
+        }
+
+        private sealed class EngKeyComparer : IEqualityComparer<EngKey>
+        {
+            public static readonly EngKeyComparer Instance = new EngKeyComparer();
+
+            public bool Equals(EngKey a, EngKey b)
+            {
+                if (a.Phys != b.Phys || a.Len != b.Len) return false;
+                return string.CompareOrdinal(a.Name, a.Start, b.Name, b.Start, a.Len) == 0;
+            }
+
+            public int GetHashCode(EngKey k)
+            {
+                int h = k.Phys * 397;
+                for (int i = 0; i < k.Len; i++) h = (h * 31) + k.Name[k.Start + i];
+                return h;
+            }
         }
 
         private static double Clamp(double v, double lo, double hi)

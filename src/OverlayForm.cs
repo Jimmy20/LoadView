@@ -461,6 +461,9 @@ namespace LoadView
         private bool _pawnReady;          // cached: PawnIO installed + task registered
         private DateTime _lastReadyCheckUtc = DateTime.MinValue;
         private DateTime _lastTaskRunUtc = DateTime.MinValue;
+        private DateTime _lastHeartbeatUtc = DateTime.MinValue;
+        private DateTime _lastTempReadUtc = DateTime.MinValue;
+        private int _readyChecks;         // drives the Ready() back-off
 
         // Engage/disengage the driver path to match the AccurateCpuTempDriver setting.
         private void UpdateHelper()
@@ -728,23 +731,36 @@ namespace LoadView
         private void OnTick(object sender, EventArgs e)
         {
             // Accurate CPU temp (opt-in): keep the helper alive and feed its reading to the sampler.
+            //
+            // Everything here is throttled below the tick rate. Both the heartbeat write and the
+            // temperature read are synchronous file I/O on the UI thread, and the helper only
+            // publishes every 2 s against an 8 s staleness budget, so doing either every tick was
+            // just putting the drawing thread on the disk three times as often as needed.
             if (_settings.AccurateCpuTempDriver)
             {
-                TempIpc.WriteHeartbeat();
-                // While waiting for the one-time setup to finish, re-check readiness every few s.
-                if (!_pawnReady && (DateTime.UtcNow - _lastReadyCheckUtc).TotalSeconds >= 4)
+                DateTime utc = DateTime.UtcNow;
+                if ((utc - _lastHeartbeatUtc).TotalSeconds >= 3)
+                { _lastHeartbeatUtc = utc; TempIpc.WriteHeartbeat(); }
+
+                // Back off while waiting for the one-time setup: Ready() ends in a late-bound COM
+                // round-trip to Task Scheduler, and if the user declines the UAC prompt this would
+                // otherwise repeat every 4 s for the rest of the session.
+                double readyGap = _readyChecks < 5 ? 4.0 : (_readyChecks < 10 ? 30.0 : 60.0);
+                if (!_pawnReady && (utc - _lastReadyCheckUtc).TotalSeconds >= readyGap)
                 {
                     _pawnReady = PawnIoSetup.Ready();
-                    _lastReadyCheckUtc = DateTime.UtcNow;
+                    _lastReadyCheckUtc = utc;
+                    _readyChecks++;
                 }
-                if (_pawnReady)
+                if (_pawnReady && (utc - _lastTempReadUtc).TotalSeconds >= 2)
                 {
+                    _lastTempReadUtc = utc;
                     double hc; DateTime hw;
-                    if (TempIpc.TryReadCpuTemp(out hc, out hw) && (DateTime.UtcNow - hw).TotalSeconds < 10)
+                    if (TempIpc.TryReadCpuTemp(out hc, out hw) && (utc - hw).TotalSeconds < 10)
                         _sampler.SetCpuTempOverride(hc);
-                    else if ((DateTime.UtcNow - _lastTaskRunUtc).TotalSeconds >= 15)
+                    else if ((utc - _lastTaskRunUtc).TotalSeconds >= 15)
                     {
-                        _lastTaskRunUtc = DateTime.UtcNow;   // (re)start the helper via the task
+                        _lastTaskRunUtc = utc;   // (re)start the helper via the task
                         PawnIoSetup.RunHelperTask();
                     }
                 }

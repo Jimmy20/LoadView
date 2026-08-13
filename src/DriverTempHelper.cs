@@ -118,7 +118,10 @@ namespace LoadView
                             + CurrentIdentity() + ", PawnIO device open failed?)");
                     }
 
-                    for (int i = 0; i < 20; i++) { Thread.Sleep(100); if (!TempIpc.HeartbeatFresh(8.0)) break; }
+                    // 500 ms granularity, not 100: each check is two file-metadata calls, and this
+                    // is a SYSTEM process polling for the whole session. Four checks per 2 s cycle
+                    // still notices a closed overlay well inside the 8 s staleness budget.
+                    for (int i = 0; i < 4; i++) { Thread.Sleep(500); if (!TempIpc.HeartbeatFresh(8.0)) break; }
                 }
             }
             finally
