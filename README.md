@@ -206,8 +206,8 @@ case on a managed work PC. What the setup does:
 - Installs **[PawnIO](https://pawnio.eu/)** — a free, open-source, **digitally-signed** sensor driver
   that is **HVCI-compatible**, so this works **even with Windows Memory Integrity turned on** (unlike
   the old WinRing0 driver, which HVCI blocks). A pinned version is downloaded from its official source
-  and its **SHA-256**, its signature **and** its publisher are all verified before it is run; nothing is
-  bundled in `LoadView.exe`.
+  and its **SHA-256**, its signature and its publisher's **exact certificate** are all verified before it
+  is run; nothing is bundled in `LoadView.exe`.
 - Copies the reader (LoadView itself) and **LibreHardwareMonitor** (verified by SHA-256) into
   `C:\Program Files\LoadView\`, and registers a **Task Scheduler** task named
   *LoadView CPU Temp Helper* that runs it as the **SYSTEM** account on demand. SYSTEM is what makes the
@@ -251,4 +251,11 @@ Leave the option **off** (the default) to stay completely driver-free and admin-
 - Optionally the **WAN country + flag** can be shown under it (Settings → Network, off by default):
   the country is looked up from the IP via `ipwho.is` and a small flag image is fetched from
   `flagcdn.com` and cached in `%APPDATA%\LoadView\flags` — both only when the option is enabled.
+  Replies from those services are treated as untrusted input: size-capped, and the country code is
+  only accepted as two letters, since it becomes part of a file name.
+- **Where you run it from matters.** Windows looks for a program's libraries next to the program
+  first, so a file named `pdh.dll`, `nvml.dll`, `atiadlxx.dll` or `ControlLib.dll` sitting beside
+  `LoadView.exe` could otherwise be loaded as part of the app. LoadView refuses to use any of those
+  libraries if it finds one there (the affected reading simply shows `n/a`). Even so, prefer a folder
+  only you can write to rather than a shared or public one.
 - Reading performance counters does not require administrator rights.

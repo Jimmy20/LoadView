@@ -4,11 +4,25 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "2.10.1";
+        public const string Version = "2.11.0";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "2.11.0",
+            "  - Security: a DLL dropped next to LoadView.exe is no longer loaded. Portable",
+            "    exes often live in writable folders, and Windows searches there first",
+            "  - Security: the country lookup can no longer steer where the flag file is",
+            "    written, replies from web services are size-capped, and downloads no",
+            "    longer offer Windows credentials to the server they talk to",
+            "  - Security: the CPU-temp setup verifies the driver installer's certificate",
+            "    exactly (a look-alike name used to pass) and checks a supplied file before",
+            "    copying it anywhere",
+            "  - Fix: a hand-edited settings.ini can no longer crash the app on startup",
+            "  - Fix: helper commands can no longer hang forever instead of timing out",
+            "  - Lower idle cost: fewer allocations per second in the GPU and graph code,",
+            "    and less disk polling by both the overlay and the temperature reader",
+            "",
             "2.10.1",
             "  - Security fix: the one-time setup now empties its folders before using",
             "    them. A file left there beforehand could be a hard link, and the",
