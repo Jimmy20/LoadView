@@ -322,27 +322,42 @@ namespace LoadView
         // settings.ini is a plain text file that invites hand-editing, and an out-of-range value is
         // not merely ugly: a font size of 0 makes the Font constructor throw *inside OnPaint*, so
         // the overlay would die on every launch until the file was deleted by hand, and a width of
-        // 999999 produces a window nobody can reach. The dialog already enforces these ranges
-        // (SettingsForm.AddNum / AddSize), so this is the same contract applied to the file.
+        // 999999 produces a window nobody can reach.
+        //
+        // These bounds are deliberately the same ones the Settings dialog offers, so a value that
+        // survives the file also survives being seen by the dialog — before, the dialog's narrower
+        // ranges meant opening Settings silently shrank a hand-set value.
+        public const int MinWidth = 160, MaxWidth = 1200;
+        public const int MinGraphH = 24, MaxGraphH = 600;
+        public const int MinDriveRow = 16, MaxDriveRow = 200;
+        public const int MinRefreshMs = 200, MaxRefreshMs = 10000;
+        public const float MinBigPt = 8f, MaxBigPt = 200f;    // clock, date, weekday
+        public const float MinSmallPt = 7f, MaxSmallPt = 72f;  // drive labels, lists, IP, net totals
+        public const double MinHotC = 30.0, MaxHotC = 120.0;
+
         private void ClampAll()
         {
-            Width = C(Width, 120, 1200);
-            GraphHeight = C(GraphHeight, 20, 600);
-            DriveRowHeight = C(DriveRowHeight, 12, 200);
-            RefreshMs = C(RefreshMs, 200, 10000);
+            Width = C(Width, MinWidth, MaxWidth);
+            GraphHeight = C(GraphHeight, MinGraphH, MaxGraphH);
+            DriveRowHeight = C(DriveRowHeight, MinDriveRow, MaxDriveRow);
+            RefreshMs = C(RefreshMs, MinRefreshMs, MaxRefreshMs);
             IpLanRefreshSec = C(IpLanRefreshSec, 2, 3600);
             IpWanRefreshSec = C(IpWanRefreshSec, 30, 86400);
 
-            ClockSize = C(ClockSize, 6f, 200f);
-            DateSize = C(DateSize, 6f, 200f);
-            DaySize = C(DaySize, 6f, 200f);
-            DriveLabelSize = C(DriveLabelSize, 6f, 72f);
-            ListSize = C(ListSize, 6f, 72f);
-            IpSize = C(IpSize, 6f, 72f);
-            NetTotalsSize = C(NetTotalsSize, 6f, 72f);
+            ClockSize = C(ClockSize, MinBigPt, MaxBigPt);
+            DateSize = C(DateSize, MinBigPt, MaxBigPt);
+            DaySize = C(DaySize, MinBigPt, MaxBigPt);
+            DriveLabelSize = C(DriveLabelSize, MinSmallPt, MaxSmallPt);
+            ListSize = C(ListSize, MinSmallPt, MaxSmallPt);
+            IpSize = C(IpSize, MinSmallPt, MaxSmallPt);
+            NetTotalsSize = C(NetTotalsSize, MinSmallPt, MaxSmallPt);
 
             if (Opacity < 0.30) Opacity = 0.30; else if (Opacity > 1.0) Opacity = 1.0;
-            TempHotC = C(TempHotC, 30.0, 120.0);
+
+            // 0 means "never highlight" and is a documented, reachable choice — clamping it into the
+            // 30..120 band (as this did when it was first written) turned switching the highlight off
+            // into "red from 30 C upwards" on the next start.
+            if (TempHotC != 0.0) TempHotC = C(TempHotC, MinHotC, MaxHotC);
         }
 
         private static int C(int v, int lo, int hi) { if (v < lo) return lo; if (v > hi) return hi; return v; }

@@ -35,15 +35,18 @@ namespace LoadView
         // controls
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
             _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot;
-        private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _netBytes, _extIp, _top, _lock, _startup, _debugLog,
-            _tempF, _showCpuTemp, _showGpuTemp, _accurateDriver, _showWanCountry, _showWanFlag;
+        private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
+            _showCpuTemp, _showGpuTemp, _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn;
+        private ComboBox _netUnit, _tempUnit;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
-        private Label _opacityVal;
+        private Label _opacityVal, _tempHotEquiv;
         private readonly Button[] _gColor = new Button[5];
         private readonly NumericUpDown[] _gMax = new NumericUpDown[5];
         private readonly NumericUpDown[] _gAlert = new NumericUpDown[5];
+        private readonly CheckBox[] _gAuto = new CheckBox[5];
+        private readonly CheckBox[] _gAlertOn = new CheckBox[5];
 
         public Settings Result { get { return _working; } }
 
@@ -99,17 +102,19 @@ namespace LoadView
 
         // ---------- pages ----------
 
+        // One page per subject. The old split had graph height under "Layout", the NET graph's colours
+        // on a different page from its scale, and the IP section's options spread over three pages —
+        // so each page here owns everything about one thing, and nothing else.
         private void BuildAllPages()
         {
-            AddPage("Layout", BuildLayout);
+            AddPage("Window", BuildWindow);
             AddPage("Sections", BuildSections);
             AddPage("Graphs", BuildGraphs);
             AddPage("Clock & date", BuildClockDate);
-            AddPage("Drives & lists", BuildDrivesLists);
-            AddPage("Network", BuildNetwork);
+            AddPage("Drives & processes", BuildDrivesProcesses);
+            AddPage("Network & IP", BuildNetwork);
             AddPage("Temperatures", BuildTemperatures);
-            AddPage("Behavior", BuildBehavior);
-            AddPage("Defaults", BuildDefaults);
+            AddPage("Advanced", BuildAdvanced);
         }
 
         private void AddPage(string name, Action build)
@@ -145,18 +150,38 @@ namespace LoadView
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         }
 
-        private void BuildLayout()
+        private void BuildWindow()
         {
-            _width   = AddNum("Window width (px)", 180, 800, _working.Width, "Overall panel width.");
-            _graphH  = AddNum("Graph height (px)", 24, 400, _working.GraphHeight, "Height of each metric graph.");
-            _driveH  = AddNum("Drive bar height (px)", 16, 160, _working.DriveRowHeight, "Height of each drive row.");
-            _refreshMs = AddNum("Refresh interval (ms)", 200, 10000, _working.RefreshMs, "How often the metrics update.");
-            _refreshMs.Increment = 100;
+            _width = AddNum("Window width (px)", Settings.MinWidth, Settings.MaxWidth, _working.Width,
+                "Overall width of the overlay panel.");
+
+            RowLabel("Opacity");
+            _opacity = new TrackBar();
+            _opacity.Minimum = 30; _opacity.Maximum = 100; _opacity.TickFrequency = 10;
+            _opacity.Value = Clamp((int)Math.Round(_working.Opacity * 100), 30, 100);
+            _opacity.SetBounds(CtrlX - 4, _y, 150, 40);
+            _opacity.Scroll += delegate { _opacityVal.Text = _opacity.Value + "%"; OnChanged(); };
+            _tips.SetToolTip(_opacity, "How see-through the overlay is.");
+            _panel.Controls.Add(_opacity);
+            _opacityVal = new Label();
+            _opacityVal.Text = _opacity.Value + "%";
+            _opacityVal.ForeColor = Ink;
+            _opacityVal.SetBounds(CtrlX + 150, _y + 8, 44, 20);
+            _panel.Controls.Add(_opacityVal);
+            _y += 46;
+
+            _top = AddCheck("Always on top", _working.AlwaysOnTop,
+                "Float above other windows. Unchecked = an ordinary window other apps can cover.");
+            _lock = AddCheck("Lock position", _working.Locked,
+                "Stop the overlay being dragged. \"Reset position\" in the menu still works.");
+            _startup = AddCheck("Start with Windows", Startup.IsEnabled(),
+                "Add a shortcut to your Startup folder.");
         }
 
         private void BuildSections()
         {
             Hint("Check = visible.  Select an item and use ▲ ▼ to reorder.");
+            Hint("Each section's own options live on the matching page.");
             _order = new CheckedListBox();
             _order.BackColor = FieldBg;
             _order.ForeColor = Ink;
@@ -174,139 +199,237 @@ namespace LoadView
 
             Button up = SmallButton("▲", _order.Right + 10, _y);
             up.Click += delegate { MoveItem(-1); };
+            _tips.SetToolTip(up, "Move the selected section up");
             _panel.Controls.Add(up);
             Button down = SmallButton("▼", _order.Right + 10, _y + 36);
             down.Click += delegate { MoveItem(1); };
+            _tips.SetToolTip(down, "Move the selected section down");
             _panel.Controls.Add(down);
             _y += _order.Height + 8;
         }
 
         private void BuildGraphs()
         {
-            Hint("Per graph: accent color, max (0 = auto), and red alert threshold (0 = off).");
-            Label(120, _y, 70, "color", Dim);
-            Label(250, _y, 50, "max", Dim);
-            Label(330, _y, 50, "alert", Dim);
+            _graphH = AddNum("Graph height (px)", Settings.MinGraphH, Settings.MaxGraphH, _working.GraphHeight,
+                "Height of every metric graph. (This used to sit under Layout, which is why it was hard to find.)");
+            _y += 6;
+
+            // "Auto" and "Alert" are checkboxes rather than the old magic zero: the number fields used
+            // to mean "0 = auto" and "0 = off", which was only explained in a hint above the table.
+            // Column x-positions are tight on purpose: the page is 660 - 150 (nav) wide and loses
+            // another ~17 to the scrollbar, so the last field has to end before ~490.
+            Label(100, _y, 60, "colour", Dim);
+            Label(196, _y, 60, "scale", Dim);
+            Label(344, _y, 60, "red alert", Dim);
             _y += 22;
 
             string[] names = { "CPU", "GPU", "MEM", "DISK", "NET" };
-            Color[] colors = { _working.CpuColor, _working.GpuColor, _working.MemColor, _working.DiskColor, Color.Empty };
             double[] maxes = { _working.CpuMax, _working.GpuMax, _working.MemMax, _working.DiskMax, _working.NetMax };
             double[] alerts = { _working.CpuAlert, _working.GpuAlert, _working.MemAlert, _working.DiskAlert, _working.NetAlert };
+            Color[] colors = { _working.CpuColor, _working.GpuColor, _working.MemColor, _working.DiskColor, Color.Empty };
 
             for (int i = 0; i < 5; i++)
             {
-                Label(LabelX, _y + 4, 60, names[i], Ink);
+                Label(LabelX, _y + 5, 60, names[i], Ink);
+
                 if (i < 4)
                 {
-                    Button c = new Button();
-                    c.SetBounds(120, _y, 110, 26);
-                    c.BackColor = colors[i];
-                    c.FlatStyle = FlatStyle.Flat;
-                    c.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
-                    c.Click += delegate { if (PickColor(c)) OnChanged(); };
-                    _panel.Controls.Add(c);
-                    _gColor[i] = c;
+                    _gColor[i] = GraphColor(100, colors[i]);
                 }
                 else
                 {
-                    Label(120, _y + 4, 130, "(see Network)", Dim);
+                    // The NET graph draws two series, so its two colours belong here with its scale
+                    // rather than on the Network page, which is where they used to hide.
+                    _netDownColor = GraphColor(100, _working.NetDownColor);
+                    _tips.SetToolTip(_netDownColor, "Download series colour.");
+                    _netUpColor = GraphColor(142, _working.NetUpColor);
+                    _tips.SetToolTip(_netUpColor, "Upload series colour.");
                 }
-                _gMax[i] = GraphNum(250, maxes[i]);
-                _gAlert[i] = GraphNum(330, alerts[i]);
-                _y += 32;
+
+                bool autoScale = maxes[i] <= 0;
+                _gAuto[i] = GraphToggle(196, "Auto", autoScale,
+                    "Scale the graph to the highest recent value instead of a fixed maximum.");
+                _gMax[i] = GraphNum(266, autoScale ? 0 : maxes[i]);
+                _gMax[i].Enabled = !autoScale;
+                _tips.SetToolTip(_gMax[i], i == 4 ? "Fixed top of the scale, in the unit chosen on the Network page."
+                                                  : "Fixed top of the scale (percent).");
+
+                bool alertOn = alerts[i] > 0;
+                _gAlertOn[i] = GraphToggle(344, "At", alertOn, "Turn the graph red from this value upwards.");
+                _gAlert[i] = GraphNum(396, alerts[i]);
+                _gAlert[i].Enabled = alertOn;
+                _tips.SetToolTip(_gAlert[i], "The graph goes red at or above this value.");
+
+                int idx = i;   // capture for the closures below
+                _gAuto[i].CheckedChanged += delegate
+                {
+                    _gMax[idx].Enabled = !_gAuto[idx].Checked;
+                    OnChanged();
+                };
+                _gAlertOn[i].CheckedChanged += delegate
+                {
+                    _gAlert[idx].Enabled = _gAlertOn[idx].Checked;
+                    OnChanged();
+                };
+                _y += 34;
             }
+        }
+
+        private Button GraphColor(int x, Color c)
+        {
+            Button b = new Button();
+            b.SetBounds(x, _y, 38, 26);
+            b.BackColor = c;
+            b.FlatStyle = FlatStyle.Flat;
+            b.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+            b.Click += delegate { if (PickColor(b)) OnChanged(); };
+            _panel.Controls.Add(b);
+            return b;
+        }
+
+        private CheckBox GraphToggle(int x, string text, bool val, string tip)
+        {
+            CheckBox c = new CheckBox();
+            c.Text = text;
+            c.Checked = val;
+            c.ForeColor = Ink;
+            c.FlatStyle = FlatStyle.Flat;
+            c.SetBounds(x, _y + 3, text.Length > 3 ? 62 : 44, 22);
+            _tips.SetToolTip(c, tip);
+            _panel.Controls.Add(c);
+            return c;
         }
 
         private void BuildClockDate()
         {
-            _seconds   = AddCheck("Show seconds", _working.ShowSeconds, "Show HH:mm:ss instead of HH:mm.");
-            _clockSize = AddNum("Clock size (pt)", 8, 160, (int)_working.ClockSize, null);
-            _clockColor = AddColor("Clock color", _working.ClockColor);
-            _dateSize  = AddNum("Date size (pt)", 8, 96, (int)_working.DateSize, null);
-            _dateColor = AddColor("Date color", _working.DateColor);
-            _dateBold  = AddCheck("Date bold", _working.DateBold, null);
-            _daySize   = AddNum("Weekday size (pt)", 8, 96, (int)_working.DaySize, null);
-            _dayColor  = AddColor("Weekday color", _working.DayColor);
-            _dayBold   = AddCheck("Weekday bold", _working.DayBold, null);
+            GroupHeader("Clock");
+            _seconds = AddCheck("Show seconds", _working.ShowSeconds, "Show HH:mm:ss instead of HH:mm.");
+            _clockSize = AddNum("Size (pt)", (int)Settings.MinBigPt, (int)Settings.MaxBigPt, (int)_working.ClockSize,
+                "Text size of the big clock.");
+            _clockColor = AddColor("Colour", _working.ClockColor);
+
+            GroupHeader("Date");
+            _dateSize = AddNum("Size (pt)", (int)Settings.MinBigPt, (int)Settings.MaxBigPt, (int)_working.DateSize,
+                "Text size of the date line.");
+            _dateColor = AddColor("Colour", _working.DateColor);
+            _dateBold = AddCheck("Bold", _working.DateBold, "Draw the date in bold.");
+
+            GroupHeader("Weekday");
+            _daySize = AddNum("Size (pt)", (int)Settings.MinBigPt, (int)Settings.MaxBigPt, (int)_working.DaySize,
+                "Text size of the weekday line.");
+            _dayColor = AddColor("Colour", _working.DayColor);
+            _dayBold = AddCheck("Bold", _working.DayBold, "Draw the weekday in bold.");
         }
 
-        private void BuildDrivesLists()
+        private void BuildDrivesProcesses()
         {
-            _driveLblSize = AddNum("Drive label size (pt)", 7, 28, (int)_working.DriveLabelSize, null);
-            _driveLblBold = AddCheck("Drive label bold", _working.DriveLabelBold, null);
-            _listSize = AddNum("Top CPU/RAM size (pt)", 7, 28, (int)_working.ListSize, "Text size of the top-process lists.");
-            _ipSize   = AddNum("IP text size (pt)", 7, 28, (int)_working.IpSize, "Text size of the LAN/WAN lines.");
+            GroupHeader("Drives");
+            _driveH = AddNum("Row height (px)", Settings.MinDriveRow, Settings.MaxDriveRow, _working.DriveRowHeight,
+                "Height of each drive row, including its usage bar.");
+            _driveLblSize = AddNum("Label size (pt)", (int)Settings.MinSmallPt, (int)Settings.MaxSmallPt,
+                (int)_working.DriveLabelSize, "Text size of the drive labels.");
+            _driveLblBold = AddCheck("Label bold", _working.DriveLabelBold, "Draw the drive labels in bold.");
+
+            GroupHeader("Top CPU / Top RAM");
+            _listSize = AddNum("Text size (pt)", (int)Settings.MinSmallPt, (int)Settings.MaxSmallPt,
+                (int)_working.ListSize, "Text size of both top-process lists.");
         }
 
         private void BuildNetwork()
         {
-            _netBytes = AddCheck("Network in bytes", _working.NetUnitBytes, "Checked = MB/s & kB/s (bytes). Unchecked = Mbps & Kbps (bits).");
-            _netDownColor = AddColor("Download color", _working.NetDownColor);
-            _netUpColor   = AddColor("Upload color", _working.NetUpColor);
-            _netTotalsSize = AddNum("Net totals size (pt)", 7, 28, (int)_working.NetTotalsSize, null);
-            _ipLanSec = AddNum("LAN IP refresh (s)", 2, 3600, _working.IpLanRefreshSec, "How often the local IP is re-read.");
-            _ipWanSec = AddNum("WAN IP refresh (s)", 30, 86400, _working.IpWanRefreshSec, "How often the public IP is looked up.");
-            _showWanCountry = AddCheck("Show WAN country", _working.ShowWanCountry, "Show the country of your public IP under WAN (looks it up online).");
-            _showWanFlag = AddCheck("Show WAN flag", _working.ShowWanFlag, "Show the country flag next to it (downloads a small flag image).");
+            GroupHeader("Network");
+            _netUnit = AddChoice("Units", new string[] { "MB/s  (bytes)", "Mbps  (bits)" },
+                _working.NetUnitBytes ? 0 : 1,
+                "Bytes is what file managers show; bits is what internet plans are sold in.");
+            _netTotalsSize = AddNum("Totals text size (pt)", (int)Settings.MinSmallPt, (int)Settings.MaxSmallPt,
+                (int)_working.NetTotalsSize, "Text size of the session download/upload totals.");
+            Hint("The NET graph's two colours are on the Graphs page, with its scale.");
+
+            GroupHeader("IP addresses");
+            _ipSize = AddNum("Text size (pt)", (int)Settings.MinSmallPt, (int)Settings.MaxSmallPt,
+                (int)_working.IpSize, "Text size of the LAN / WAN lines.");
+            _ipLanSec = AddNum("LAN refresh (s)", 2, 3600, _working.IpLanRefreshSec,
+                "How often the local IP is re-read. Cheap: no network traffic.");
+            _extIp = AddCheck("Show public (WAN) IP", _working.ExternalIpEnabled,
+                "Look up your public IP over HTTPS (api.ipify.org). Off = no outbound requests at all.");
+            _ipWanSec = AddNum("WAN refresh (s)", 30, 86400, _working.IpWanRefreshSec,
+                "How often the public IP is looked up. \"Refresh WAN now\" in the menu does it on demand.");
+            _showWanCountry = AddCheck("Show country", _working.ShowWanCountry,
+                "Show the country of your public IP beneath it (one extra online lookup, ipwho.is).");
+            _showWanFlag = AddCheck("Show flag", _working.ShowWanFlag,
+                "Show the country's flag next to it (downloads a small image from flagcdn.com once).");
         }
 
         private void BuildTemperatures()
         {
-            _tempF = AddCheck("Show in °F", _working.TempFahrenheit, "Show temperatures in Fahrenheit instead of Celsius.");
-            _showCpuTemp = AddCheck("Show CPU temperature", _working.ShowCpuTemp, "Append the CPU temperature to the CPU graph when available.");
-            _showGpuTemp = AddCheck("Show GPU temperature", _working.ShowGpuTemp, "Append the GPU temperature to the GPU graph when available.");
-            _tempHot = AddNum("Hot threshold (°C)", 0, 120, (int)_working.TempHotC,
-                "Temperature at or above this shows in red. 0 = off. Always in °C.");
-            _y += 8;
-            Hint("CPU temperature uses the ACPI sensor your PC exposes — many laptops");
-            Hint("show none. GPU temperature works on NVIDIA / AMD / Intel where the");
-            Hint("driver reports it (very old Intel iGPUs may not).");
+            GroupHeader("Display");
+            _tempUnit = AddChoice("Units", new string[] { "°C  Celsius", "°F  Fahrenheit" },
+                _working.TempFahrenheit ? 1 : 0, "Unit used for every temperature LoadView shows.");
 
-            _y += 10;
-            _accurateDriver = AddCheck("Accurate CPU temp (driver)", _working.AccurateCpuTempDriver,
+            // The threshold is stored in °C whatever the display unit, so the equivalent is shown live
+            // rather than converted back and forth (which would drift with every switch).
+            bool hotOn = _working.TempHotC > 0;
+            _tempHotOn = AddCheck("Highlight when hot", hotOn,
+                "Draw a temperature in red once it reaches the threshold below.");
+            _tempHot = AddNum("Threshold (°C)", (int)Settings.MinHotC, (int)Settings.MaxHotC,
+                hotOn ? (int)_working.TempHotC : 85, "Always entered in °C, whichever unit is displayed.");
+            _tempHot.Enabled = hotOn;
+            _tempHotEquiv = Label(CtrlX + 100, _tempHot.Top + 3, 90, "", Dim);
+            _tempHotOn.CheckedChanged += delegate { _tempHot.Enabled = _tempHotOn.Checked; OnChanged(); };
+            _tempHot.ValueChanged += delegate { UpdateHotEquivalent(); };
+            _tempUnit.SelectedIndexChanged += delegate { UpdateHotEquivalent(); };
+            UpdateHotEquivalent();
+
+            GroupHeader("On the graphs");
+            _showCpuTemp = AddCheck("CPU temperature on the CPU graph", _working.ShowCpuTemp,
+                "Append the CPU temperature to the CPU graph's header when it is available.");
+            _showGpuTemp = AddCheck("GPU temperature on the GPU graph", _working.ShowGpuTemp,
+                "Append the GPU temperature to the GPU graph's header when it is available.");
+            Hint("GPU temperature needs no driver and works on NVIDIA / AMD / Intel where");
+            Hint("the driver reports it. CPU temperature without the option below relies on");
+            Hint("the ACPI sensor, which many laptops do not expose at all.");
+
+            GroupHeader("Accurate CPU temperature");
+            _accurateDriver = AddCheck("Use the sensor driver", _working.AccurateCpuTempDriver,
                 "Reads the true CPU core temperature. On first enable it installs the free, signed "
-                + "PawnIO driver (one UAC prompt) and works even with Windows Memory Integrity on. "
-                + "After that it starts silently — no more prompts. Off = no driver.");
-            Hint("Optional: installs the free, signed PawnIO driver (one admin prompt the");
-            Hint("first time, then silent). Reads the real CPU core temperature and works");
-            Hint("with Memory Integrity on. Leave off to stay fully driver-free.");
+                + "PawnIO driver (one administrator prompt) and works even with Windows Memory "
+                + "Integrity on. After that it starts silently — no more prompts. Off = no driver.");
+            Hint("Installs the free, open-source, signed PawnIO driver — one administrator");
+            Hint("prompt the first time, silent afterwards. Leave it off to keep LoadView");
+            Hint("completely driver-free; the CPU temperature then stays blank on most laptops.");
         }
 
-        private void BuildBehavior()
+        private void UpdateHotEquivalent()
         {
-            Label(LabelX, _y + 4, LabelW, "Opacity", Ink).TextAlign = ContentAlignment.MiddleRight;
-            _opacity = new TrackBar();
-            _opacity.Minimum = 30; _opacity.Maximum = 100; _opacity.TickFrequency = 10;
-            _opacity.Value = Clamp((int)Math.Round(_working.Opacity * 100), 30, 100);
-            _opacity.SetBounds(CtrlX - 4, _y, 150, 40);
-            _opacity.Scroll += delegate { _opacityVal.Text = _opacity.Value + "%"; OnChanged(); };
-            _panel.Controls.Add(_opacity);
-            _opacityVal = new Label();
-            _opacityVal.Text = _opacity.Value + "%";
-            _opacityVal.ForeColor = Ink;
-            _opacityVal.SetBounds(CtrlX + 150, _y + 8, 44, 20);
-            _panel.Controls.Add(_opacityVal);
-            _y += 46;
-
-            _top = AddCheck("Always on top", _working.AlwaysOnTop, "Float above other windows. Uncheck = normal window.");
-            _lock = AddCheck("Lock position", _working.Locked, "Disable dragging.");
-            _extIp = AddCheck("Show external IP", _working.ExternalIpEnabled, "Look up your public IP (outbound HTTPS to api.ipify.org).");
-            _startup = AddCheck("Start with Windows", Startup.IsEnabled(), "Add a shortcut to the Startup folder.");
-            _debugLog = AddCheck("Write debug log", _working.DebugLog, "Log to %APPDATA%\\LoadView\\loadview.log for troubleshooting.");
+            if (_tempHotEquiv == null || _tempUnit == null) return;
+            if (_tempUnit.SelectedIndex == 1)
+            {
+                double f = (double)_tempHot.Value * 9.0 / 5.0 + 32.0;
+                _tempHotEquiv.Text = "= " + f.ToString("0") + " °F";
+            }
+            else _tempHotEquiv.Text = "";
         }
 
-        private void BuildDefaults()
+        private void BuildAdvanced()
         {
-            Label(LabelX, _y, 380, "Save the current configuration as your personal defaults,", Dim);
-            _y += 20;
-            Label(LabelX, _y, 380, "or reset everything back to them.", Dim);
-            _y += 32;
+            GroupHeader("Updates");
+            _refreshMs = AddNum("Metrics refresh (ms)", Settings.MinRefreshMs, Settings.MaxRefreshMs,
+                _working.RefreshMs, "How often every graph and readout updates. Lower costs more CPU.");
+            _refreshMs.Increment = 100;
+
+            GroupHeader("Diagnostics");
+            _debugLog = AddCheck("Write debug log", _working.DebugLog,
+                "Log to %APPDATA%\\LoadView\\loadview.log. Off by default; the file self-truncates.");
+
+            GroupHeader("Defaults");
+            Label(LabelX, _y, 420, "Keep the current configuration as your own defaults, or go back to them.", Dim);
+            _y += 30;
 
             Button save = new Button();
             save.Text = "Save current as defaults";
             save.SetBounds(LabelX, _y, 200, 30);
             StyleButton(save);
+            _tips.SetToolTip(save, "Writes defaults.ini, which \"Reset to defaults\" and a fresh start use.");
             save.Click += delegate { SaveAsDefaults(); };
             _panel.Controls.Add(save);
 
@@ -314,8 +437,10 @@ namespace LoadView
             reset.Text = "Reset to defaults";
             reset.SetBounds(LabelX + 210, _y, 160, 30);
             StyleButton(reset);
+            _tips.SetToolTip(reset, "Loads your saved defaults, or the built-in ones if you never saved any.");
             reset.Click += delegate { ResetToDefaults(); };
             _panel.Controls.Add(reset);
+            _y += 40;
         }
 
         // ---------- buttons / commit ----------
@@ -340,6 +465,14 @@ namespace LoadView
             cancel.SetBounds(right - bw, 10, bw, bh);
             StyleButton(cancel);
             bottom.Controls.Add(cancel);
+
+            // Nothing in the dialog said that edits land on the overlay straight away, so people
+            // hunted for an Apply button that was deliberately removed.
+            Label live = new Label();
+            live.Text = "Changes apply as you make them.  Cancel restores the previous settings.";
+            live.ForeColor = Dim;
+            live.SetBounds(16, 18, 420, 20);
+            bottom.Controls.Add(live);
 
             AcceptButton = ok;
             CancelButton = cancel;
@@ -409,13 +542,15 @@ namespace LoadView
             }
             _working.Order = order;
 
-            _working.CpuColor = _gColor[0].BackColor; _working.CpuMax = (double)_gMax[0].Value; _working.CpuAlert = (double)_gAlert[0].Value;
-            _working.GpuColor = _gColor[1].BackColor; _working.GpuMax = (double)_gMax[1].Value; _working.GpuAlert = (double)_gAlert[1].Value;
-            _working.MemColor = _gColor[2].BackColor; _working.MemMax = (double)_gMax[2].Value; _working.MemAlert = (double)_gAlert[2].Value;
-            _working.DiskColor = _gColor[3].BackColor; _working.DiskMax = (double)_gMax[3].Value; _working.DiskAlert = (double)_gAlert[3].Value;
-            _working.NetMax = (double)_gMax[4].Value; _working.NetAlert = (double)_gAlert[4].Value;
+            // Auto/off is still stored as 0, so the file format is unchanged — the checkboxes only
+            // replace the user having to know that.
+            _working.CpuColor = _gColor[0].BackColor; _working.CpuMax = GMax(0); _working.CpuAlert = GAlert(0);
+            _working.GpuColor = _gColor[1].BackColor; _working.GpuMax = GMax(1); _working.GpuAlert = GAlert(1);
+            _working.MemColor = _gColor[2].BackColor; _working.MemMax = GMax(2); _working.MemAlert = GAlert(2);
+            _working.DiskColor = _gColor[3].BackColor; _working.DiskMax = GMax(3); _working.DiskAlert = GAlert(3);
+            _working.NetMax = GMax(4); _working.NetAlert = GAlert(4);
 
-            _working.NetUnitBytes = _netBytes.Checked;
+            _working.NetUnitBytes = (_netUnit.SelectedIndex == 0);
             _working.NetDownColor = _netDownColor.BackColor;
             _working.NetUpColor = _netUpColor.BackColor;
             _working.NetTotalsSize = (float)_netTotalsSize.Value;
@@ -439,10 +574,10 @@ namespace LoadView
             _working.ListSize = (float)_listSize.Value;
             _working.IpSize = (float)_ipSize.Value;
 
-            _working.TempFahrenheit = _tempF.Checked;
+            _working.TempFahrenheit = (_tempUnit.SelectedIndex == 1);
             _working.ShowCpuTemp = _showCpuTemp.Checked;
             _working.ShowGpuTemp = _showGpuTemp.Checked;
-            _working.TempHotC = (double)_tempHot.Value;
+            _working.TempHotC = _tempHotOn.Checked ? (double)_tempHot.Value : 0.0;
             _working.AccurateCpuTempDriver = _accurateDriver.Checked;
 
             _working.Opacity = _opacity.Value / 100.0;
@@ -451,6 +586,10 @@ namespace LoadView
             _working.ExternalIpEnabled = _extIp.Checked;
             _working.DebugLog = _debugLog.Checked;
         }
+
+        // 0 keeps its stored meaning: auto-scale, and no alert.
+        private double GMax(int i) { return _gAuto[i].Checked ? 0.0 : (double)_gMax[i].Value; }
+        private double GAlert(int i) { return _gAlertOn[i].Checked ? (double)_gAlert[i].Value : 0.0; }
 
         // ---------- row builders (right-aligned label + control) ----------
 
@@ -503,7 +642,7 @@ namespace LoadView
             n.Minimum = 0; n.Maximum = 100000; n.DecimalPlaces = 0;
             n.Value = (decimal)Clamp((int)val, 0, 100000);
             n.BackColor = FieldBg; n.ForeColor = Ink; n.BorderStyle = BorderStyle.FixedSingle;
-            n.SetBounds(x, _y, 72, 24);
+            n.SetBounds(x, _y, 66, 24);
             n.ValueChanged += delegate { OnChanged(); };
             _panel.Controls.Add(n);
             return n;
@@ -526,6 +665,37 @@ namespace LoadView
             _panel.Controls.Add(hex);
             _y += 30;
             return b;
+        }
+
+        // A two-or-more-way choice. Used where a checkbox hid what the unchecked state meant:
+        // "Network in bytes" and "Show in °F" never said what you got by leaving them off.
+        private ComboBox AddChoice(string label, string[] items, int index, string tip)
+        {
+            RowLabel(label);
+            ComboBox c = new ComboBox();
+            c.DropDownStyle = ComboBoxStyle.DropDownList;
+            c.FlatStyle = FlatStyle.Flat;
+            c.BackColor = FieldBg; c.ForeColor = Ink;
+            c.Items.AddRange(items);
+            c.SelectedIndex = (index >= 0 && index < items.Length) ? index : 0;
+            c.SetBounds(CtrlX, _y, 170, 24);
+            c.SelectedIndexChanged += delegate { OnChanged(); };
+            if (tip != null) _tips.SetToolTip(c, tip);
+            _panel.Controls.Add(c);
+            _y += 30;
+            return c;
+        }
+
+        // Group heading inside a page, so a long list of rows reads as sections rather than a wall.
+        private Font _headerFont;
+
+        private void GroupHeader(string text)
+        {
+            if (_headerFont == null) _headerFont = new Font(Font.FontFamily, Font.Size - 0.5f, FontStyle.Bold);
+            _y += 6;
+            Label l = Label(LabelX, _y, 300, text.ToUpperInvariant(), Accent);
+            l.Font = _headerFont;   // one font for every header, not one per header
+            _y += 24;
         }
 
         private CheckBox AddCheck(string label, bool val, string tip)
