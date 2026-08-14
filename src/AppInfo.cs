@@ -4,12 +4,20 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.0";
+        public const string Version = "3.0.1";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.1",
+            "  - Fix: the note in the Settings footer was cut off mid-sentence where the",
+            "    OK button starts",
+            "  - The 3.0.0 list below was missing the theme, which did ship in 3.0.0",
+            "",
             "3.0.0",
+            "  - New: Theme choice - Follow system (default), Dark or Light. Follow system",
+            "    tracks the Windows app theme and switches while running; clock/date colours",
+            "    you never picked yourself move to ones that suit the new background",
             "  - New section: Temperatures, as labelled tiles under the clock. Covers CPU,",
             "    GPU and every disk that reports one - disks need no driver at all",
             "  - New section: Fans (RPM), for machines whose motherboard exposes them",

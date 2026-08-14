@@ -597,34 +597,70 @@ namespace LoadView
 
         // ---------- buttons / commit ----------
 
+        private const int BtnW = 90, BtnH = 32, BtnGap = 10;
+        private Button _ok, _cancel;
+        private Label _liveHint;
+        private Panel _bottom;
+
+        // Positioned from the panel's real width instead of anchors, and re-run on resize.
+        //
+        // The panel is docked Bottom but sits beside the 150 px nav, so it is 510 wide, not the form's
+        // 660 — and right-anchored buttons only reach their true position once layout runs. Trusting
+        // either the form width or a pre-layout Left is what put the footer text underneath OK.
+        private void LayoutBottom()
+        {
+            if (_bottom == null || _ok == null) return;
+            int right = _bottom.ClientSize.Width - 16;
+            _ok.SetBounds(right - BtnW * 2 - BtnGap, 10, BtnW, BtnH);
+            _cancel.SetBounds(right - BtnW, 10, BtnW, BtnH);
+            if (_liveHint != null)
+            {
+                int w = _ok.Left - _liveHint.Left - 12;
+                _liveHint.Width = w > 60 ? w : 60;
+            }
+        }
+
         private void BuildButtons(Panel bottom)
         {
-            const int bw = 90, bh = 32, bgap = 10;
-            int right = 660 - 16;
+            _bottom = bottom;
+            bottom.Resize += delegate { LayoutBottom(); };
 
             Button ok = new Button();
             ok.Text = "OK";
-            ok.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            ok.SetBounds(right - bw * 2 - bgap, 10, bw, bh);
+            ok.SetBounds(0, 10, BtnW, BtnH);
             StyleButton(ok);
             ok.Click += delegate { CommitToWorking(); Startup.SetEnabled(_startup.Checked); DialogResult = DialogResult.OK; };
             bottom.Controls.Add(ok);
+            _ok = ok;
 
             Button cancel = new Button();
             cancel.Text = "Cancel";
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            cancel.SetBounds(right - bw, 10, bw, bh);
+            cancel.SetBounds(0, 10, BtnW, BtnH);
             StyleButton(cancel);
             bottom.Controls.Add(cancel);
+            _cancel = cancel;
 
             // Nothing in the dialog said that edits land on the overlay straight away, so people
             // hunted for an Apply button that was deliberately removed.
+            //
+            // The width has to be worked out *after* layout, not at construction time. This panel is
+            // docked Bottom but sits beside the 150 px nav, so it is 510 wide rather than the form's
+            // 660 — and the right-anchored buttons only move to their real position when the panel is
+            // laid out. Sizing the label against ok.Left here in the constructor used the pre-layout
+            // 454 instead of the actual 304, which is how the text ended up running under the button.
             Label live = new Label();
-            live.Text = "Changes apply as you make them.  Cancel restores the previous settings.";
+            // 246 px measured against the 276 the panel leaves before OK — chosen so it reads as a
+            // whole sentence rather than being ellipsised.
+            live.Text = "Changes apply live.  Cancel reverts them.";
             live.ForeColor = Dim;
-            live.SetBounds(16, 18, 420, 20);
+            live.AutoSize = false;
+            live.AutoEllipsis = true;   // a longer wording ellipsises rather than sliding under OK
+            live.SetBounds(16, 18, 200, 20);
             bottom.Controls.Add(live);
+            _liveHint = live;
+
+            LayoutBottom();   // and again from Resize once docking gives the panel its real width
 
             AcceptButton = ok;
             CancelButton = cancel;

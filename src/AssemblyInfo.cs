@@ -8,6 +8,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("Always-on-top system monitor overlay")]
 [assembly: AssemblyCompany("LoadView")]
 [assembly: AssemblyCopyright("Copyright © 2026")]
-[assembly: AssemblyVersion("3.0.0.0")]
-[assembly: AssemblyFileVersion("3.0.0.0")]
+[assembly: AssemblyVersion("3.0.1.0")]
+[assembly: AssemblyFileVersion("3.0.1.0")]
 [assembly: ComVisible(false)]
