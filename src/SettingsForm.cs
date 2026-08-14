@@ -44,7 +44,7 @@ namespace LoadView
             _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot,
             _tileH, _tileCols, _tileLabel, _tileValue;
         private CheckedListBox _tiles, _fans;
-        private Label _fansEmptyHint;
+        private Label _fansEmptyHint, _fansNeedDriver;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
             _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn, _wideSensors;
         private ComboBox _netUnit, _tempUnit, _theme;
@@ -560,6 +560,24 @@ namespace LoadView
                 + "fan speeds and chipset temperatures. Needs the sensor driver from the Temperatures "
                 + "page. Separate switch because this probes more of your hardware than a CPU "
                 + "temperature does.");
+
+            // Ticking this alone does nothing, because without the driver there is no privileged
+            // reader to do the probing — and "I turned it on and still see no fans" is exactly the
+            // confusion that deserves an answer in the window rather than in the README.
+            _fansNeedDriver = Hint("");
+            UpdateFanHint();
+            _wideSensors.CheckedChanged += delegate { UpdateFanHint(); };
+            if (_accurateDriver != null) _accurateDriver.CheckedChanged += delegate { UpdateFanHint(); };
+        }
+
+        private void UpdateFanHint()
+        {
+            if (_fansNeedDriver == null || _wideSensors == null || _accurateDriver == null) return;
+            bool blocked = _wideSensors.Checked && !_accurateDriver.Checked;
+            _fansNeedDriver.Text = blocked
+                ? "Turn on the sensor driver under Temperatures, or this has nothing to read."
+                : "";
+            _fansNeedDriver.ForeColor = blocked ? Theme.Alert : Dim;
         }
 
         private void BuildAdvanced()

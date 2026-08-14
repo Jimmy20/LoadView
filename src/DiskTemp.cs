@@ -35,7 +35,9 @@ namespace LoadView
         private static extern bool CloseHandle(IntPtr h);
 
         private const uint IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400;
-        private const uint IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000;
+        private const uint IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x002D1080;
+        private const uint IOCTL_STORAGE_PREDICT_FAILURE = 0x002D1100;
+        private const int FILE_DEVICE_DISK = 0x00000007;
         private const int StorageDeviceProperty = 0;
         private const int StorageDeviceTemperatureProperty = 52;
         private const int TempInfoSize = 16;          // sizeof(STORAGE_TEMPERATURE_INFO)
@@ -69,7 +71,7 @@ namespace LoadView
                 try
                 {
                     double t;
-                    if (!TryTemperature(h, out t)) continue;   // no sensor: not worth a tile
+                    if (!TryAnyTemperature(h, out t)) continue;   // no sensor at all: not worth a tile
 
                     string model, serial;
                     Describe(h, out model, out serial);
@@ -100,7 +102,7 @@ namespace LoadView
                 try
                 {
                     double t;
-                    if (!TryTemperature(h, out t)) continue;
+                    if (!TryAnyTemperature(h, out t)) continue;
                     SensorReading r;
                     r.Id = d.Id; r.Label = d.Label; r.Detail = d.Detail;
                     r.Kind = SensorKind.Temperature; r.Value = t;
@@ -116,6 +118,60 @@ namespace LoadView
             // access = 0: enough for a query IOCTL, and the reason no elevation is needed.
             try { return CreateFileW(path, 0, FILE_SHARE_RW, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero); }
             catch { return InvalidHandle; }
+        }
+
+        // Best available source, in order. The temperature property is the clean one but in practice
+        // only NVMe answers it: on a desktop with two NVMe and two SATA drives, only the NVMe pair
+        // produced a tile. SATA drives keep their temperature in a SMART attribute instead.
+        private static bool TryAnyTemperature(IntPtr h, out double celsius)
+        {
+            if (TryTemperature(h, out celsius)) return true;
+            return TrySmartTemperature(h, out celsius);
+        }
+
+        // SMART attributes via IOCTL_STORAGE_PREDICT_FAILURE.
+        //
+        // The usual way to read SMART is IOCTL_ATA_PASS_THROUGH, which needs a handle opened for read
+        // access and therefore administrator rights. This one is declared FILE_ANY_ACCESS like the
+        // temperature property, so the same zero-access handle works and SATA drives get a tile
+        // without the driver or elevation.
+        //
+        // VendorSpecific carries the ATA "read attributes" page: two bytes of revision, then up to 30
+        // entries of 12 bytes { id, flags[2], current, worst, raw[6], reserved }. Attribute 194
+        // (0xC2) is the temperature in degrees Celsius; 190 (0xBE) is the airflow sensor, used only if
+        // 194 is absent.
+        private const int SmartTempAttr = 194;
+        private const int SmartAirflowAttr = 190;
+
+        private static bool TrySmartTemperature(IntPtr h, out double celsius)
+        {
+            celsius = 0;
+            try
+            {
+                // STORAGE_PREDICT_FAILURE { ULONG PredictFailure; BYTE VendorSpecific[512]; }
+                byte[] o = new byte[516];
+                int ret;
+                if (!DeviceIoControl(h, IOCTL_STORAGE_PREDICT_FAILURE, null, 0, o, o.Length,
+                        out ret, IntPtr.Zero) || ret < 6 + 12)
+                    return false;
+
+                int table = 4 + 2;                 // past PredictFailure, past the revision word
+                double airflow = -1;
+                for (int i = 0; i < 30; i++)
+                {
+                    int at = table + i * 12;
+                    if (at + 12 > ret) break;
+                    int id = o[at];
+                    if (id == 0) continue;         // empty slot
+                    double raw = o[at + 5];        // first raw byte holds the value for both attrs
+                    if (raw <= 0 || raw >= 120) continue;
+                    if (id == SmartTempAttr) { celsius = raw; return true; }
+                    if (id == SmartAirflowAttr && airflow < 0) airflow = raw;
+                }
+                if (airflow > 0) { celsius = airflow; return true; }
+            }
+            catch { }
+            return false;
         }
 
         private static bool TryTemperature(IntPtr h, out double celsius)
@@ -181,7 +237,13 @@ namespace LoadView
         }
 
         // Physical drive number -> the drive letters living on it, so a tile can say "C:" instead of
-        // "Disk 0". Uses IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, which also needs no elevation.
+        // "Disk 0".
+        //
+        // IOCTL_STORAGE_GET_DEVICE_NUMBER rather than VOLUME_GET_VOLUME_DISK_EXTENTS, and the
+        // DeviceType check is the entire point: a cloud-storage drive (Google Drive mounts one, and
+        // reports itself as Fixed) answered the extents query in a way that read as "disk 0", so its
+        // letter was labelled onto the boot SSD's tile -- reported from a machine whose C: tile read
+        // "C: F:". A virtual file system is not FILE_DEVICE_DISK, so it is now rejected outright.
         private static Dictionary<int, string> DriveLetters()
         {
             Dictionary<int, string> map = new Dictionary<int, string>();
@@ -195,14 +257,16 @@ namespace LoadView
                     if (h == InvalidHandle) continue;
                     try
                     {
-                        byte[] o = new byte[1024];
+                        // STORAGE_DEVICE_NUMBER { DEVICE_TYPE DeviceType; ULONG DeviceNumber;
+                        //                         ULONG PartitionNumber; }
+                        byte[] o = new byte[32];
                         int ret;
-                        if (!DeviceIoControl(h, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, null, 0,
+                        if (!DeviceIoControl(h, IOCTL_STORAGE_GET_DEVICE_NUMBER, null, 0,
                                 o, o.Length, out ret, IntPtr.Zero) || ret < 12)
                             continue;
-                        int extents = (int)ReadUInt(o, 0);
-                        if (extents < 1) continue;
-                        int disk = (int)ReadUInt(o, 8);            // first extent's DiskNumber
+                        if ((int)ReadUInt(o, 0) != FILE_DEVICE_DISK) continue;   // not a real disk volume
+                        int disk = (int)ReadUInt(o, 4);
+                        if (disk < 0 || disk >= MaxDrives) continue;
                         string cur;
                         map[disk] = map.TryGetValue(disk, out cur) ? cur + " " + root : root;
                     }

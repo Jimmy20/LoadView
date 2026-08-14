@@ -4,11 +4,19 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.3";
+        public const string Version = "3.0.4";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.4",
+            "  - Fix: a cloud-storage drive (Google Drive and the like) no longer has its",
+            "    letter labelled onto a real disk's tile",
+            "  - SATA drives now report a temperature too, read from SMART - still with no",
+            "    driver and no administrator. Before, only NVMe drives got a tile",
+            "  - The Fans page says so when the sensor driver is off, since the chipset and",
+            "    fan switch can read nothing without it",
+            "",
             "3.0.3",
             "  - Fix: the CPU temperature tile no longer disappears for a few seconds now",
             "    and then. The reader and the overlay were contending for the same small",
