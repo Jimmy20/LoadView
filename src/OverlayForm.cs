@@ -451,7 +451,11 @@ namespace LoadView
                 tiles[i].ValueSize = _settings.TileValueSize;
                 tiles[i].Fahrenheit = _settings.TempFahrenheit;
             }
-            _tempTiles.HotC = _settings.TempHotC;   // fans have no "too hot"
+            // Fans have no "too hot", so only the temperature tiles get thresholds.
+            _tempTiles.HotCpuC = _settings.TempHotCpuC;
+            _tempTiles.HotGpuC = _settings.TempHotGpuC;
+            _tempTiles.HotDiskC = _settings.TempHotDiskC;
+            _tempTiles.HotOtherC = _settings.TempHotOtherC;
 
             // The helper reads this on startup, so a change only takes effect when it restarts —
             // hence clearing the heartbeat to make it exit and come back.

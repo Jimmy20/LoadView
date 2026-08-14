@@ -4,11 +4,19 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.5";
+        public const string Version = "3.0.6";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.6",
+            "  - The red 'too hot' threshold is now one per kind of component - CPU, GPU, Disks,",
+            "    Chipset & others - each switchable on its own. One number could not fit them all:",
+            "    70 C is an ordinary CPU and a worrying disk. An existing threshold carries over",
+            "    to all four, so nothing changes colour until you say so",
+            "  - The Temperatures page is ordered so what matters is visible without scrolling,",
+            "    and the Settings window is a little taller",
+            "",
             "3.0.5",
             "  - Fix: temperature and fan tiles wrapped to a second row while there was still",
             "    room for one more. Six 46 px tiles need 276 px and had 300 to sit in, but the",

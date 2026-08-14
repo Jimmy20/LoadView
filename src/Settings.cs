@@ -101,8 +101,35 @@ namespace LoadView
         public bool TempFahrenheit = false;        // false: show °C, true: show °F
         // (ShowCpuTemp / ShowGpuTemp are gone: temperatures had been appended to the CPU and GPU graph
         // headers, which duplicated the tile section that now owns them.)
-        public double TempHotC = 0;                // temp >= this many °C shows in red; 0 = off
+        // A reading at or above its threshold shows in red; 0 = no highlight for that component.
+        // One threshold per kind of component, because they do not share a normal range: a CPU at
+        // 70 °C is unremarkable, a hard disk at 70 °C is not. Suggested starting points, used to
+        // pre-fill the dialog, are in HotDefaults below.
+        public double TempHotCpuC = 0;
+        public double TempHotGpuC = 0;
+        public double TempHotDiskC = 0;
+        public double TempHotOtherC = 0;
         public bool AccurateCpuTempDriver = false; // opt-in: kernel-driver CPU temp (downloaded on enable)
+
+        // What each component is offered as a starting threshold. CPU and GPU sit near where the chip
+        // itself starts throttling; disks are far lower because they run cooler and mind it more (an
+        // NVMe drive typically declares its own warning at ~83 °C, so 55 means "worth a look", not
+        // "failing"); Other covers chipset and board sensors.
+        public static double HotDefault(SensorClass c)
+        {
+            if (c == SensorClass.Cpu) return 90;
+            if (c == SensorClass.Gpu) return 85;
+            if (c == SensorClass.Disk) return 55;
+            return 80;
+        }
+
+        public double HotFor(SensorClass c)
+        {
+            if (c == SensorClass.Cpu) return TempHotCpuC;
+            if (c == SensorClass.Gpu) return TempHotGpuC;
+            if (c == SensorClass.Disk) return TempHotDiskC;
+            return TempHotOtherC;
+        }
 
         // per-graph accent colors
         public Color CpuColor = Color.FromArgb(0x4F, 0x8C, 0xFF);
@@ -310,7 +337,17 @@ namespace LoadView
             s.ExternalIpEnabled = GetBool(kv, "externalip", s.ExternalIpEnabled);
 
             s.TempFahrenheit = GetBool(kv, "tempfahrenheit", s.TempFahrenheit);
-            s.TempHotC = GetDouble(kv, "temphotc", s.TempHotC);
+
+            // Up to 3.0.5 one "temphotc" covered every component. A file that still has it, with the
+            // highlight actually switched on, gets that value on all four -- the same behaviour as
+            // before rather than a silent change to defaults the user never chose.
+            double legacyHot = GetDouble(kv, "temphotc", 0);
+            if (legacyHot > 0)
+                s.TempHotCpuC = s.TempHotGpuC = s.TempHotDiskC = s.TempHotOtherC = legacyHot;
+            s.TempHotCpuC = GetDouble(kv, "temphotcpuc", s.TempHotCpuC);
+            s.TempHotGpuC = GetDouble(kv, "temphotgpuc", s.TempHotGpuC);
+            s.TempHotDiskC = GetDouble(kv, "temphotdiskc", s.TempHotDiskC);
+            s.TempHotOtherC = GetDouble(kv, "temphototherc", s.TempHotOtherC);
             s.AccurateCpuTempDriver = GetBool(kv, "accuratecputempdriver", s.AccurateCpuTempDriver);
 
             s.CpuColor = GetColor(kv, "cpucolor", s.CpuColor);
@@ -399,7 +436,16 @@ namespace LoadView
             // 0 means "never highlight" and is a documented, reachable choice — clamping it into the
             // 30..120 band (as this did when it was first written) turned switching the highlight off
             // into "red from 30 C upwards" on the next start.
-            if (TempHotC != 0.0) TempHotC = C(TempHotC, MinHotC, MaxHotC);
+            TempHotCpuC = Hot(TempHotCpuC);
+            TempHotGpuC = Hot(TempHotGpuC);
+            TempHotDiskC = Hot(TempHotDiskC);
+            TempHotOtherC = Hot(TempHotOtherC);
+        }
+
+        private static double Hot(double v)
+        {
+            if (v == 0.0) return 0.0;
+            return C(v, MinHotC, MaxHotC);
         }
 
         private static int C(int v, int lo, int hi) { if (v < lo) return lo; if (v > hi) return hi; return v; }
@@ -460,7 +506,10 @@ namespace LoadView
                 l.Add("externalip=" + B(ExternalIpEnabled));
 
                 l.Add("tempfahrenheit=" + B(TempFahrenheit));
-                l.Add("temphotc=" + D(TempHotC));
+                l.Add("temphotcpuc=" + D(TempHotCpuC));
+                l.Add("temphotgpuc=" + D(TempHotGpuC));
+                l.Add("temphotdiskc=" + D(TempHotDiskC));
+                l.Add("temphototherc=" + D(TempHotOtherC));
                 l.Add("accuratecputempdriver=" + B(AccurateCpuTempDriver));
 
                 l.Add("cpucolor=" + Hex(CpuColor));

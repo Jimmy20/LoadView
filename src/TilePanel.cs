@@ -19,7 +19,9 @@ namespace LoadView
         public float ValueSize = 13f;
         public int TilePx = 46;          // tile height; auto columns aim for roughly square tiles
         public int ColumnsWanted = 0;    // 0 = as many as fit
-        public double HotC = 0;          // >0: a temperature at or above this draws red
+        // One threshold per component kind, 0 = never highlight that kind. The panel asks the reading
+        // what it is rather than being told per tile, so nothing has to be kept in step with Items.
+        public double HotCpuC, HotGpuC, HotDiskC, HotOtherC;
         public bool Fahrenheit;
         public bool ShowHeader = true;
 
@@ -140,7 +142,8 @@ namespace LoadView
         {
             using (SolidBrush b = new SolidBrush(TileBack)) g.FillRectangle(b, r);
 
-            bool hot = s.Kind == SensorKind.Temperature && HotC > 0 && s.Value >= HotC;
+            double limit = HotLimit(s);
+            bool hot = s.Kind == SensorKind.Temperature && limit > 0 && s.Value >= limit;
             Font lf = LabelFont(), vf = ValueFont();
             int lh = LineH(lf), vh = LineH(vf);
             int top = r.Top + Math.Max(1, (r.Height - lh - vh) / 2);
@@ -152,6 +155,15 @@ namespace LoadView
             Rectangle vr = new Rectangle(r.Left + 2, top + lh, r.Width - 4, vh);
             TextRenderer.DrawText(g, Format(s), vf, vr, hot ? HotColor : TextColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        }
+
+        private double HotLimit(SensorReading s)
+        {
+            SensorClass c = s.Class;
+            if (c == SensorClass.Cpu) return HotCpuC;
+            if (c == SensorClass.Gpu) return HotGpuC;
+            if (c == SensorClass.Disk) return HotDiskC;
+            return HotOtherC;
         }
 
         private string Format(SensorReading s)

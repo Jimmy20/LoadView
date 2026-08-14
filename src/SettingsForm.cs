@@ -41,17 +41,35 @@ namespace LoadView
 
         // controls
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
-            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot,
+            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec,
             _tileH, _tileCols, _tileLabel, _tileValue;
         private CheckedListBox _tiles, _fans;
         private Label _fansEmptyHint, _fansNeedDriver;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
-            _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn, _wideSensors;
+            _accurateDriver, _showWanCountry, _showWanFlag, _wideSensors;
         private ComboBox _netUnit, _tempUnit, _theme;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
-        private Label _opacityVal, _tempHotEquiv;
+        private Label _opacityVal;
+
+        // The "hot" thresholds, one row per kind of component, in the order they are shown.
+        private static readonly SensorClass[] HotClasses =
+        {
+            SensorClass.Cpu, SensorClass.Gpu, SensorClass.Disk, SensorClass.Other
+        };
+        private static readonly string[] HotNames = { "CPU", "GPU", "Disks", "Chipset & others" };
+        private static readonly string[] HotTips =
+        {
+            "Turn the CPU reading red from this temperature upwards.",
+            "Turn the GPU reading red from this temperature upwards.",
+            "Turn a disk reading red from this temperature upwards. Drives run cooler than chips and "
+                + "mind heat more, so this belongs well below the CPU figure.",
+            "Turn chipset and any other driver-provided reading red from this temperature upwards."
+        };
+        private readonly NumericUpDown[] _tempHot = new NumericUpDown[4];
+        private readonly CheckBox[] _tempHotOn = new CheckBox[4];
+        private readonly Label[] _tempHotEquiv = new Label[4];
         private readonly Button[] _gColor = new Button[5];
         private readonly NumericUpDown[] _gMax = new NumericUpDown[5];
         private readonly NumericUpDown[] _gAlert = new NumericUpDown[5];
@@ -79,7 +97,9 @@ namespace LoadView
             ForeColor = Ink;
             Font = new Font("Segoe UI", 9.5f);
             AutoScaleMode = AutoScaleMode.Font; // scale consistently on high-DPI displays
-            ClientSize = new Size(660, 560);
+            // 600 rather than 560: the Temperatures page outgrew the shorter dialog once each kind of
+            // component got its own threshold, and every page has room to spare at this height.
+            ClientSize = new Size(660, 600);
 
             Panel bottom = new Panel();
             bottom.Dock = DockStyle.Bottom;
@@ -382,10 +402,64 @@ namespace LoadView
 
         private void BuildTemperatures()
         {
+            // The page is taller than the dialog, so the order decides what needs scrolling to reach:
+            // what to show, in what unit, what counts as hot and whether the CPU can be read at all,
+            // then the sizes — cosmetics, and the only part shared with the Fans page.
             GroupHeader("Tiles");
             Hint("Check the components to show as tiles.  ▲ ▼ sets their order.");
             BuildTileList();
 
+            GroupHeader("Display");
+            _tempUnit = AddChoice("Units", new string[] { "°C  Celsius", "°F  Fahrenheit" },
+                _working.TempFahrenheit ? 1 : 0, "Unit used for every temperature LoadView shows.");
+
+            Hint("Disks need no driver; GPU works where the graphics driver reports it.");
+
+            // The driver switch comes before the thresholds because it decides whether there is a CPU
+            // reading at all, while a threshold only changes the colour of one. The page is longer than
+            // it is tall either way, so what ends up below the fold should be the refinement.
+            GroupHeader("Accurate CPU temperature");
+            _accurateDriver = AddCheck("Use the sensor driver", _working.AccurateCpuTempDriver,
+                "Reads the true CPU core temperature. On first enable it installs the free, signed "
+                + "PawnIO driver (one administrator prompt) and works even with Windows Memory "
+                + "Integrity on. After that it starts silently — no more prompts. Off = no driver.");
+            Hint("Without it the CPU temperature stays blank on most laptops.");
+
+            // One threshold per component kind, not one for everything: 70 °C is an ordinary CPU and a
+            // worrying disk, so a single number was always wrong for something. The value is stored in
+            // °C whatever the display unit, and the equivalent is shown live rather than converted back
+            // and forth (which would drift a degree with every switch).
+            GroupHeader("Highlight when hot");
+
+            for (int i = 0; i < HotClasses.Length; i++)
+            {
+                SensorClass cls = HotClasses[i];
+                double val = _working.HotFor(cls);
+                bool on = val > 0;
+
+                RowLabel(HotNames[i]);
+                _tempHotOn[i] = GraphToggle(CtrlX, "At", on, HotTips[i]);
+                _tempHot[i] = GraphNum(CtrlX + 48, on ? val : Settings.HotDefault(cls));
+                _tempHot[i].Minimum = (decimal)Settings.MinHotC;
+                _tempHot[i].Maximum = (decimal)Settings.MaxHotC;
+                _tempHot[i].Enabled = on;
+                _tips.SetToolTip(_tempHot[i], "Degrees Celsius, whichever unit is displayed.");
+                _tempHotEquiv[i] = Label(CtrlX + 124, _y + 3, 80, "", Dim);
+
+                int idx = i;   // capture for the closures
+                _tempHotOn[i].CheckedChanged += delegate
+                {
+                    _tempHot[idx].Enabled = _tempHotOn[idx].Checked;
+                    OnChanged();
+                };
+                _tempHot[i].ValueChanged += delegate { UpdateHotEquivalent(); };
+                _y += 30;
+            }
+            _tempUnit.SelectedIndexChanged += delegate { UpdateHotEquivalent(); };
+            UpdateHotEquivalent();
+
+            GroupHeader("Tile appearance");
+            Hint("Shared with the Fans page, so both sections match.");
             _tileH = AddNum("Tile size (px)", 24, 120, _working.TileHeight,
                 "Height of each tile; the width follows so they stay roughly square. Shared with Fans.");
             _tileCols = AddNum("Tiles per row", 0, 12, _working.TileColumns,
@@ -394,34 +468,6 @@ namespace LoadView
                 "Text size of the tile labels. Shared with Fans.");
             _tileValue = AddNum("Reading size (pt)", 7, 40, (int)_working.TileValueSize,
                 "Text size of the readings. Shared with Fans.");
-
-            GroupHeader("Display");
-            _tempUnit = AddChoice("Units", new string[] { "°C  Celsius", "°F  Fahrenheit" },
-                _working.TempFahrenheit ? 1 : 0, "Unit used for every temperature LoadView shows.");
-
-            // The threshold is stored in °C whatever the display unit, so the equivalent is shown live
-            // rather than converted back and forth (which would drift with every switch).
-            bool hotOn = _working.TempHotC > 0;
-            _tempHotOn = AddCheck("Highlight when hot", hotOn,
-                "Draw a temperature in red once it reaches the threshold below.");
-            _tempHot = AddNum("Threshold (°C)", (int)Settings.MinHotC, (int)Settings.MaxHotC,
-                hotOn ? (int)_working.TempHotC : 85, "Always entered in °C, whichever unit is displayed.");
-            _tempHot.Enabled = hotOn;
-            _tempHotEquiv = Label(CtrlX + 100, _tempHot.Top + 3, 90, "", Dim);
-            _tempHotOn.CheckedChanged += delegate { _tempHot.Enabled = _tempHotOn.Checked; OnChanged(); };
-            _tempHot.ValueChanged += delegate { UpdateHotEquivalent(); };
-            _tempUnit.SelectedIndexChanged += delegate { UpdateHotEquivalent(); };
-            UpdateHotEquivalent();
-
-            Hint("Disks need no driver; GPU works where the graphics driver reports it.");
-
-            GroupHeader("Accurate CPU temperature");
-            _accurateDriver = AddCheck("Use the sensor driver", _working.AccurateCpuTempDriver,
-                "Reads the true CPU core temperature. On first enable it installs the free, signed "
-                + "PawnIO driver (one administrator prompt) and works even with Windows Memory "
-                + "Integrity on. After that it starts silently — no more prompts. Off = no driver.");
-            Hint("Installs the free, signed PawnIO driver: one administrator prompt, then");
-            Hint("silent. Without it the CPU temperature stays blank on most laptops.");
         }
 
         // The sensor set is only known at runtime, so the list is built from what is readable now,
@@ -533,15 +579,27 @@ namespace LoadView
             public override string ToString() { return _text; }
         }
 
+        // Unticked stores 0, which is what "never highlight this" has always been written as, so the
+        // number left in the box is remembered by the dialog and forgotten by the file.
+        private double HotValue(int i)
+        {
+            if (_tempHotOn[i] == null || !_tempHotOn[i].Checked) return 0.0;
+            return (double)_tempHot[i].Value;
+        }
+
         private void UpdateHotEquivalent()
         {
-            if (_tempHotEquiv == null || _tempUnit == null) return;
-            if (_tempUnit.SelectedIndex == 1)
+            if (_tempUnit == null) return;
+            for (int i = 0; i < _tempHotEquiv.Length; i++)
             {
-                double f = (double)_tempHot.Value * 9.0 / 5.0 + 32.0;
-                _tempHotEquiv.Text = "= " + f.ToString("0") + " °F";
+                if (_tempHotEquiv[i] == null) continue;
+                if (_tempUnit.SelectedIndex == 1)
+                {
+                    double f = (double)_tempHot[i].Value * 9.0 / 5.0 + 32.0;
+                    _tempHotEquiv[i].Text = "= " + f.ToString("0") + " °F";
+                }
+                else _tempHotEquiv[i].Text = "";
             }
-            else _tempHotEquiv.Text = "";
         }
 
         private void BuildFans()
@@ -836,7 +894,10 @@ namespace LoadView
             _working.TileValueSize = (float)_tileValue.Value;
 
             _working.TempFahrenheit = (_tempUnit.SelectedIndex == 1);
-            _working.TempHotC = _tempHotOn.Checked ? (double)_tempHot.Value : 0.0;
+            _working.TempHotCpuC = HotValue(0);
+            _working.TempHotGpuC = HotValue(1);
+            _working.TempHotDiskC = HotValue(2);
+            _working.TempHotOtherC = HotValue(3);
             _working.AccurateCpuTempDriver = _accurateDriver.Checked;
 
             _working.Theme = _theme.SelectedIndex == 1 ? ThemeMode.Dark
@@ -864,6 +925,7 @@ namespace LoadView
         private Label Label(int x, int y, int w, string text, Color color)
         {
             Label l = new Label();
+            l.UseMnemonic = false;   // otherwise "&" is swallowed as an accelerator, not drawn
             l.Text = text;
             l.ForeColor = color;
             l.SetBounds(x, y, w, 20);
@@ -874,6 +936,7 @@ namespace LoadView
         private Label RowLabel(string text)
         {
             Label l = new Label();
+            l.UseMnemonic = false;
             l.Text = text;
             l.ForeColor = Ink;
             l.TextAlign = ContentAlignment.MiddleRight;

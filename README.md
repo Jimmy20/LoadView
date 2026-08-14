@@ -176,9 +176,15 @@ rest keep working.
 
 ### Temperatures
 
-Temperatures are **best-effort** and shown next to the CPU / GPU graphs (e.g. `47% · 62°C`).
-Under **Settings → Temperatures** you can switch °C/°F, hide either temperature, and set a red
-**hot** threshold.
+Temperatures have their own section of labelled tiles — CPU, GPU, every disk that reports one, and
+the chipset where the optional driver can reach it. Under **Settings → Temperatures** you choose which
+of them to show and in what order, switch °C/°F, and set the temperature each turns red at.
+
+That red threshold is **one per kind of component**, because they do not share a normal range: 70 °C is
+an unremarkable afternoon for a CPU and a bad day for a hard disk. Each of **CPU**, **GPU**, **Disks**
+and **Chipset & others** has its own, and each can be off. The suggested starting points are 90, 85, 55
+and 80 °C — for disks that is a "worth a look" figure rather than a failure, since a drive typically
+declares its own warning around 83 °C.
 
 - **GPU** is read in **user-mode from the GPU vendor's own driver library** — NVIDIA (NVML),
   AMD (ADL) and Intel (IGCL) — so it works across vendors with **no admin and no extra files**
