@@ -73,15 +73,23 @@ namespace LoadView
         }
 
         private int TilePad() { return (int)(6 * DeviceDpi / 96f); }
-        private int Gap() { return (int)(4 * DeviceDpi / 96f); }
+        // Left and right margin for the row of tiles, deliberately smaller than TilePad: six tiles of
+        // 46 px in a 300 px window need 276 px, and margins plus gaps were eating the 24 px left over,
+        // so a row that plainly fits was wrapping.
+        private int SideMargin() { return (int)(4 * DeviceDpi / 96f); }
+        private int Gap() { return (int)(3 * DeviceDpi / 96f); }
         private int TileScaled() { return (int)(TilePx * DeviceDpi / 96f); }
         private int HeaderH() { return LineH(HeaderFont()) + (int)(2 * DeviceDpi / 96f); }
 
+        // Tiles keep the size they were configured with and wrap when the row is full. Squeezing them
+        // narrower to gain a column was tried and dropped: at the default 46 px a reading like "2412"
+        // or "100" already uses 40 of the 42 px inside a tile, so the squeeze buys a place in the row
+        // at the price of "24..." in it.
         private int Columns(int n)
         {
             if (ColumnsWanted > 0) return Math.Min(ColumnsWanted, n);
-            int pad = TilePad(), gap = Gap(), tile = TileScaled();
-            int usable = Width - 2 * pad;
+            int gap = Gap(), tile = TileScaled();
+            int usable = Width - 2 * SideMargin();
             if (usable < tile) return 1;
             // Aim for tiles about as wide as they are tall, so they read as squares.
             int fit = (usable + gap) / (tile + gap);
@@ -96,17 +104,17 @@ namespace LoadView
             int n = Items == null ? 0 : Items.Length;
             if (n == 0) return;
 
-            int pad = TilePad(), gap = Gap(), tile = TileScaled();
+            int margin = SideMargin(), gap = Gap(), tile = TileScaled();
             int y = 0;
             if (ShowHeader)
             {
-                TextRenderer.DrawText(g, Header, HeaderFont(), new Point(pad, 0), DimColor,
+                TextRenderer.DrawText(g, Header, HeaderFont(), new Point(TilePad(), 0), DimColor,
                     TextFormatFlags.NoPadding);
                 y = HeaderH();
             }
 
             int cols = Columns(n);
-            int usable = Width - 2 * pad;
+            int usable = Width - 2 * margin;
 
             // Square tiles, not stretched to fill the row: with two sensors on a narrow overlay,
             // filling the width turned them into wide rectangles rather than the little squares this
@@ -118,7 +126,7 @@ namespace LoadView
             if (tileW < 8) tileW = 8;
 
             int rowW = cols * tileW + (cols - 1) * gap;
-            int x0 = pad + Math.Max(0, (usable - rowW) / 2);
+            int x0 = margin + Math.Max(0, (usable - rowW) / 2);
 
             for (int i = 0; i < n; i++)
             {

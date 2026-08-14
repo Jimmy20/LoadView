@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.4";
+        public const string Version = "3.0.5";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.5",
+            "  - Fix: temperature and fan tiles wrapped to a second row while there was still",
+            "    room for one more. Six 46 px tiles need 276 px and had 300 to sit in, but the",
+            "    margins and the spacing between them were using up the 24 px left over",
+            "",
             "3.0.4",
             "  - Fix: a cloud-storage drive (Google Drive and the like) no longer has its",
             "    letter labelled onto a real disk's tile",
