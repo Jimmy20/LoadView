@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace LoadView
@@ -18,6 +19,9 @@ namespace LoadView
 
         private Settings _working;
         private readonly Action<Settings> _preview;
+        // Supplies the sensors that are readable right now, so the tile list can show real values
+        // instead of bare identifiers. Null in tests, which the list handles.
+        private readonly Func<SensorReading[]> _sensors;
         private bool _suspend;
 
         private ListBox _nav;
@@ -34,7 +38,9 @@ namespace LoadView
 
         // controls
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
-            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot;
+            _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot,
+            _tileH, _tileCols, _tileLabel, _tileValue;
+        private CheckedListBox _tiles;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
             _showCpuTemp, _showGpuTemp, _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn;
         private ComboBox _netUnit, _tempUnit;
@@ -51,9 +57,13 @@ namespace LoadView
         public Settings Result { get { return _working; } }
 
         public SettingsForm(Settings working, Action<Settings> preview)
+            : this(working, preview, null) { }
+
+        public SettingsForm(Settings working, Action<Settings> preview, Func<SensorReading[]> sensors)
         {
             _working = working;
             _preview = preview;
+            _sensors = sensors;
 
             Text = "LoadView Settings";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -362,6 +372,17 @@ namespace LoadView
 
         private void BuildTemperatures()
         {
+            GroupHeader("Tiles");
+            Hint("Check the components to show as tiles.  ▲ ▼ sets their order.");
+            BuildTileList();
+
+            _tileH = AddNum("Tile size (px)", 24, 120, _working.TileHeight,
+                "Height of each tile; the width follows so they stay roughly square.");
+            _tileCols = AddNum("Tiles per row", 0, 12, _working.TileColumns,
+                "0 = fit as many as the window width allows.");
+            _tileLabel = AddNum("Label size (pt)", 6, 24, (int)_working.TileLabelSize, "Text size of the tile labels.");
+            _tileValue = AddNum("Reading size (pt)", 7, 40, (int)_working.TileValueSize, "Text size of the readings.");
+
             GroupHeader("Display");
             _tempUnit = AddChoice("Units", new string[] { "°C  Celsius", "°F  Fahrenheit" },
                 _working.TempFahrenheit ? 1 : 0, "Unit used for every temperature LoadView shows.");
@@ -397,6 +418,86 @@ namespace LoadView
             Hint("Installs the free, open-source, signed PawnIO driver — one administrator");
             Hint("prompt the first time, silent afterwards. Leave it off to keep LoadView");
             Hint("completely driver-free; the CPU temperature then stays blank on most laptops.");
+        }
+
+        // The sensor set is only known at runtime, so the list is built from what is readable now,
+        // with each entry showing its current value — that is the only way to tell two disks apart.
+        // A sensor that is saved but not present right now stays listed and marked, so unplugging a
+        // drive does not quietly discard the choice.
+        private void BuildTileList()
+        {
+            _tiles = new CheckedListBox();
+            _tiles.BackColor = FieldBg;
+            _tiles.ForeColor = Ink;
+            _tiles.BorderStyle = BorderStyle.FixedSingle;
+            _tiles.IntegralHeight = false;
+            _tiles.CheckOnClick = true;
+            _tiles.SetBounds(LabelX, _y, 300, 108);
+
+            SensorReading[] found = _sensors != null ? _sensors() : new SensorReading[0];
+            List<string> order = new List<string>(_working.TempTiles);
+            // Anything discovered but not in the saved order goes on the end, so new hardware shows
+            // up rather than staying invisible.
+            for (int i = 0; i < found.Length; i++)
+                if (found[i].Kind == SensorKind.Temperature && !order.Contains(found[i].Id))
+                    order.Add(found[i].Id);
+
+            bool showAll = _working.TempTiles.Count == 0;
+            foreach (string id in order)
+            {
+                SensorReading? match = null;
+                for (int i = 0; i < found.Length; i++) if (found[i].Id == id) { match = found[i]; break; }
+                int idx = _tiles.Items.Add(new TileItem(id, match));
+                _tiles.SetItemChecked(idx, showAll || _working.TempTiles.Contains(id));
+            }
+            _tiles.ItemCheck += delegate { BeginInvoke(new MethodInvoker(OnChanged)); };
+            _panel.Controls.Add(_tiles);
+
+            Button up = SmallButton("▲", _tiles.Right + 10, _y);
+            up.Click += delegate { MoveTile(-1); };
+            _tips.SetToolTip(up, "Move the selected tile left");
+            _panel.Controls.Add(up);
+            Button down = SmallButton("▼", _tiles.Right + 10, _y + 36);
+            down.Click += delegate { MoveTile(1); };
+            _tips.SetToolTip(down, "Move the selected tile right");
+            _panel.Controls.Add(down);
+            _y += _tiles.Height + 8;
+        }
+
+        private void MoveTile(int delta)
+        {
+            int i = _tiles.SelectedIndex;
+            if (i < 0) return;
+            int j = i + delta;
+            if (j < 0 || j >= _tiles.Items.Count) return;
+            object item = _tiles.Items[i];
+            bool chk = _tiles.GetItemChecked(i);
+            _tiles.Items.RemoveAt(i);
+            _tiles.Items.Insert(j, item);
+            _tiles.SetItemChecked(j, chk);
+            _tiles.SelectedIndex = j;
+            OnChanged();
+        }
+
+        private sealed class TileItem
+        {
+            public readonly string Id;
+            private readonly string _text;
+
+            public TileItem(string id, SensorReading? found)
+            {
+                Id = id;
+                if (found.HasValue)
+                {
+                    SensorReading r = found.Value;
+                    _text = r.Label + "   " + r.Value.ToString("0", CultureInfo.InvariantCulture)
+                        + (r.Kind == SensorKind.Fan ? " rpm" : " °C")
+                        + (string.IsNullOrEmpty(r.Detail) ? "" : "   (" + r.Detail + ")");
+                }
+                else _text = id + "   (not present)";
+            }
+
+            public override string ToString() { return _text; }
         }
 
         private void UpdateHotEquivalent()
@@ -573,6 +674,21 @@ namespace LoadView
             _working.DriveLabelBold = _driveLblBold.Checked;
             _working.ListSize = (float)_listSize.Value;
             _working.IpSize = (float)_ipSize.Value;
+
+            // An all-ticked list is stored as an empty list, i.e. "show whatever is there" — so
+            // hardware added later appears by itself instead of being silently excluded.
+            List<string> tiles = new List<string>();
+            bool all = true;
+            for (int i = 0; i < _tiles.Items.Count; i++)
+            {
+                if (_tiles.GetItemChecked(i)) tiles.Add(((TileItem)_tiles.Items[i]).Id);
+                else all = false;
+            }
+            _working.TempTiles = all ? new List<string>() : tiles;
+            _working.TileHeight = (int)_tileH.Value;
+            _working.TileColumns = (int)_tileCols.Value;
+            _working.TileLabelSize = (float)_tileLabel.Value;
+            _working.TileValueSize = (float)_tileValue.Value;
 
             _working.TempFahrenheit = (_tempUnit.SelectedIndex == 1);
             _working.ShowCpuTemp = _showCpuTemp.Checked;

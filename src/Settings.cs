@@ -24,12 +24,18 @@ namespace LoadView
         public const string SecDrives = "drives";
         public const string SecIp = "ip";
         public const string SecFooter = "footer";
+        public const string SecTemps = "temps";
 
         public static readonly string[] AllSections = new string[]
         {
-            SecClock, SecCpu, SecGpu, SecMem, SecDisk, SecNet,
+            SecClock, SecTemps, SecCpu, SecGpu, SecMem, SecDisk, SecNet,
             SecNetTotals, SecTopCpu, SecTopRam, SecDrives, SecIp, SecFooter
         };
+
+        // Sections added after a release: an existing settings.ini has an order= line without them,
+        // and appending would bury them at the bottom. These go in right after the clock instead,
+        // which is where they belong by default.
+        private static readonly string[] AfterClock = new string[] { SecTemps };
 
         // window / position
         public bool HasPosition;
@@ -56,6 +62,15 @@ namespace LoadView
         public Color ClockColor = Color.FromArgb(255, 255, 255);
         public Color DateColor = Color.FromArgb(232, 232, 237);
         public Color DayColor = Color.FromArgb(255, 255, 128);
+
+        // temperature tiles. TempTiles empty = show every sensor found, which is what makes the
+        // section useful with no configuration at all; the moment the user unticks one, the explicit
+        // list takes over. Stored as sensor IDs, never indexes.
+        public List<string> TempTiles = new List<string>();
+        public int TileHeight = 46;
+        public int TileColumns = 0;          // 0 = fit as many as the width allows
+        public float TileLabelSize = 8f;
+        public float TileValueSize = 13f;
 
         // drives
         public float DriveLabelSize = 9f;
@@ -112,11 +127,15 @@ namespace LoadView
         public bool ShowDrives = true;
         public bool ShowIp = true;
         public bool ShowFooter = true;
+        // On by default: the panel reports zero height when no sensor is readable, so a machine with
+        // nothing to show simply never displays the section rather than an empty frame.
+        public bool ShowTemps = true;
 
         public Settings Clone()
         {
             Settings s = (Settings)MemberwiseClone();
-            s.Order = new List<string>(Order); // deep-copy the mutable list
+            s.Order = new List<string>(Order);          // deep-copy the mutable lists
+            s.TempTiles = new List<string>(TempTiles);
             s.Positions = new Dictionary<string, int[]>();
             foreach (KeyValuePair<string, int[]> e in Positions)
                 s.Positions[e.Key] = new int[] { e.Value[0], e.Value[1] };
@@ -152,6 +171,7 @@ namespace LoadView
                 case SecDrives: return ShowDrives;
                 case SecIp: return ShowIp;
                 case SecFooter: return ShowFooter;
+                case SecTemps: return ShowTemps;
             }
             return false;
         }
@@ -172,6 +192,7 @@ namespace LoadView
                 case SecDrives: ShowDrives = v; break;
                 case SecIp: ShowIp = v; break;
                 case SecFooter: ShowFooter = v; break;
+                case SecTemps: ShowTemps = v; break;
             }
         }
 
@@ -191,6 +212,7 @@ namespace LoadView
                 case SecDrives: return "Drives";
                 case SecIp: return "IP addresses";
                 case SecFooter: return "Date / weekday";
+                case SecTemps: return "Temperatures";
             }
             return key;
         }
@@ -255,6 +277,12 @@ namespace LoadView
             s.ClockColor = GetColor(kv, "clockcolor", s.ClockColor);
             s.DateColor = GetColor(kv, "datecolor", s.DateColor);
             s.DayColor = GetColor(kv, "daycolor", s.DayColor);
+
+            s.TempTiles = SplitList(GetString(kv, "temptiles", ""));
+            s.TileHeight = GetInt(kv, "tileheight", s.TileHeight);
+            s.TileColumns = GetInt(kv, "tilecolumns", s.TileColumns);
+            s.TileLabelSize = GetFloat(kv, "tilelabelsize", s.TileLabelSize);
+            s.TileValueSize = GetFloat(kv, "tilevaluesize", s.TileValueSize);
 
             s.DriveLabelSize = GetFloat(kv, "drivelabelsize", s.DriveLabelSize);
             s.DriveLabelBold = GetBool(kv, "drivelabelbold", s.DriveLabelBold);
@@ -399,6 +427,12 @@ namespace LoadView
                 l.Add("datecolor=" + Hex(DateColor));
                 l.Add("daycolor=" + Hex(DayColor));
 
+                l.Add("temptiles=" + string.Join(",", TempTiles.ToArray()));
+                l.Add("tileheight=" + TileHeight.ToString(CultureInfo.InvariantCulture));
+                l.Add("tilecolumns=" + TileColumns.ToString(CultureInfo.InvariantCulture));
+                l.Add("tilelabelsize=" + F(TileLabelSize));
+                l.Add("tilevaluesize=" + F(TileValueSize));
+
                 l.Add("drivelabelsize=" + F(DriveLabelSize));
                 l.Add("drivelabelbold=" + B(DriveLabelBold));
                 l.Add("listsize=" + F(ListSize));
@@ -458,6 +492,19 @@ namespace LoadView
 
         // Keep only known keys (in saved order), then append any known keys that are missing
         // (forward-compatibility when new sections are added).
+        // Comma-separated ini value -> list, trimmed, empties dropped. Used for the tile selection.
+        private static List<string> SplitList(string raw)
+        {
+            List<string> list = new List<string>();
+            if (string.IsNullOrEmpty(raw)) return list;
+            foreach (string part in raw.Split(','))
+            {
+                string s = part.Trim();
+                if (s.Length > 0 && !list.Contains(s)) list.Add(s);
+            }
+            return list;
+        }
+
         private static List<string> NormalizeOrder(string raw)
         {
             List<string> result = new List<string>();
@@ -469,6 +516,13 @@ namespace LoadView
                     if (Array.IndexOf(AllSections, k) >= 0 && !result.Contains(k))
                         result.Add(k);
                 }
+            }
+            // New sections land under the clock rather than at the very end.
+            foreach (string k in AfterClock)
+            {
+                if (result.Contains(k)) continue;
+                int at = result.IndexOf(SecClock);
+                if (at >= 0) result.Insert(at + 1, k); else result.Insert(0, k);
             }
             foreach (string k in AllSections)
                 if (!result.Contains(k)) result.Add(k);

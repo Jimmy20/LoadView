@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Management;   // requires /r:System.Management.dll
 using System.Runtime.InteropServices;
@@ -42,6 +43,9 @@ namespace LoadView
         private bool _nvmlTried, _nvmlReady;
         private readonly AmdGpuTemp _amd = new AmdGpuTemp();
         private readonly IntelGpuTemp _intel = new IntelGpuTemp();
+        private readonly DiskTemp _disk = new DiskTemp();
+        private SensorReading[] _diskReadings;
+        private SensorReading[] _extra;
 
         public TempProvider()
         {
@@ -88,17 +92,65 @@ namespace LoadView
 
         private void Loop()
         {
+            int pass = 0;
             while (!_stop)
             {
                 double cpu; bool cpuOk = TryReadAcpiCpu(out cpu);
                 double gpu; bool gpuOk = TryReadGpu(out gpu);
+
+                // Disks move slowly and each reading is a handle open plus an IOCTL, so once every
+                // ~12 s is plenty; the drive list itself is re-enumerated every ~5 minutes so a
+                // newly attached drive still shows up without paying for it on every pass.
+                SensorReading[] disks = null;
+                try
+                {
+                    if (pass % 100 == 0) _disk.Rescan();
+                    if (pass % 4 == 0) disks = _disk.Read();
+                }
+                catch (Exception ex) { Log.Write("disk temperature", ex); }
+
                 lock (_lock)
                 {
                     _cpuValid = cpuOk; _cpuC = cpu;
                     _gpuValid = gpuOk; _gpuC = gpu;
+                    if (disks != null) _diskReadings = disks;
                 }
+                pass++;
                 for (int i = 0; i < 30 && !_stop; i++) Thread.Sleep(100); // ~3 s
             }
+        }
+
+        // Everything readable right now, as tiles want it: the CPU (the driver helper's value when
+        // it is fresh, else ACPI), each GPU-capable vendor's reading, and every disk that answers.
+        private readonly List<SensorReading> _sensorBuf = new List<SensorReading>();
+
+        public SensorReading[] Sensors()
+        {
+            List<SensorReading> list = _sensorBuf;
+            list.Clear();
+            double v;
+            if (TryGetCpu(out v)) list.Add(Make("cpu", "CPU", "CPU package", v));
+            if (TryGetGpu(out v)) list.Add(Make("gpu", "GPU", "Graphics processor", v));
+            lock (_lock)
+            {
+                if (_diskReadings != null) list.AddRange(_diskReadings);
+                if (_extra != null) list.AddRange(_extra);
+            }
+            return list.ToArray();
+        }
+
+        // Readings pushed in from the elevated helper (chipset, fans). Empty until stage 3 ships.
+        public void SetExtraSensors(SensorReading[] readings)
+        {
+            lock (_lock) { _extra = readings; }
+        }
+
+        private static SensorReading Make(string id, string label, string detail, double value)
+        {
+            SensorReading r;
+            r.Id = id; r.Label = label; r.Detail = detail;
+            r.Kind = SensorKind.Temperature; r.Value = value;
+            return r;
         }
 
         // ---------- CPU (ACPI thermal zone via WMI) ----------

@@ -95,6 +95,12 @@ namespace LoadView
         // Push an accurate CPU temperature from the elevated driver helper (Phase 2).
         public void SetCpuTempOverride(double celsius) { if (_temps != null) _temps.SetExternalCpu(celsius); }
 
+        // Everything the temperature tiles can show right now.
+        public SensorReading[] Sensors()
+        {
+            return _temps != null ? _temps.Sensors() : new SensorReading[0];
+        }
+
         public MetricsSnapshot Sample()
         {
             DateTime now = DateTime.UtcNow;

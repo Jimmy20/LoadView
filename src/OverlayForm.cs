@@ -49,6 +49,8 @@ namespace LoadView
         private NetTotalsPanel _netTotals;
         private ListPanel _topCpu, _topRam;
         private DrivesPanel _drives;
+        private TilePanel _tempTiles;
+        private string _tileSig = "";     // relayout only when the set of tiles changes
         private IpPanel _ip;
         private readonly Dictionary<string, Image> _flagCache = new Dictionary<string, Image>();
         private FooterPanel _footer;
@@ -120,10 +122,12 @@ namespace LoadView
             _drives = new DrivesPanel();
             _ip = new IpPanel();
             _footer = new FooterPanel();
+            _tempTiles = new TilePanel();
+            _tempTiles.Header = "TEMPERATURES";
 
             Control[] all = new Control[]
             {
-                _clock, _cpu, _gpu, _ram, _disk, _net,
+                _clock, _tempTiles, _cpu, _gpu, _ram, _disk, _net,
                 _netTotals, _topCpu, _topRam, _drives, _ip, _footer
             };
             foreach (Control c in all)
@@ -157,6 +161,7 @@ namespace LoadView
                 case Settings.SecDrives: return _drives;
                 case Settings.SecIp: return _ip;
                 case Settings.SecFooter: return _footer;
+                case Settings.SecTemps: return _tempTiles;
             }
             return null;
         }
@@ -285,7 +290,7 @@ namespace LoadView
         private void OpenSettings()
         {
             Settings original = _settings.Clone();
-            using (SettingsForm f = new SettingsForm(_settings.Clone(), PreviewSettings))
+            using (SettingsForm f = new SettingsForm(_settings.Clone(), PreviewSettings, _sampler.Sensors))
             {
                 if (f.ShowDialog(this) == DialogResult.OK)
                 {
@@ -433,6 +438,13 @@ namespace LoadView
                 _net.ClearHistory();
             }
 
+            _tempTiles.TilePx = _settings.TileHeight;
+            _tempTiles.ColumnsWanted = _settings.TileColumns;
+            _tempTiles.LabelSize = _settings.TileLabelSize;
+            _tempTiles.ValueSize = _settings.TileValueSize;
+            _tempTiles.HotC = _settings.TempHotC;
+            _tempTiles.Fahrenheit = _settings.TempFahrenheit;
+
             _ip.ShowWan = _settings.ExternalIpEnabled;
             _sysinfo.ExternalIpEnabled = _settings.ExternalIpEnabled;
             _sysinfo.LanRefreshSec = _settings.IpLanRefreshSec;
@@ -562,6 +574,10 @@ namespace LoadView
                 Control c = PanelFor(key);
                 if (c == null) continue;
                 int h = HeightFor(key, graphH, driveCount);
+                // A section can ask for no height at all (the tile panel does when it has nothing to
+                // show); treat that exactly like being hidden, or it would leave an empty gap.
+                if (h <= 0) { c.Visible = false; continue; }
+                c.Visible = true;
                 c.SetBounds(0, y, w, h);
                 y += h + gap;
             }
@@ -584,6 +600,7 @@ namespace LoadView
                 case Settings.SecDrives: return _drives.ContentHeight(driveCount);
                 case Settings.SecIp: return _ip.PreferredHeight();
                 case Settings.SecFooter: return _footer.PreferredHeight();
+                case Settings.SecTemps: return _tempTiles.ContentHeight();   // 0 when nothing is readable
             }
             return graphH;
         }
@@ -726,6 +743,54 @@ namespace LoadView
             }
         }
 
+        // ---------- temperature tiles ----------
+
+        // Pick the sensors the user wants, in their order, and relayout only when the set changes —
+        // sensors come and go (a drive is attached, the helper starts), and the section's height
+        // depends on how many tiles there are.
+        private readonly List<SensorReading> _tileBuf = new List<SensorReading>();
+        private readonly System.Text.StringBuilder _tileSb = new System.Text.StringBuilder();
+        private DateTime _lastTileUtc = DateTime.MinValue;
+
+        private void RefreshTiles()
+        {
+            if (!_settings.GetShow(Settings.SecTemps)) return;
+            // The sensors behind this only move every ~3 s, so there is nothing to gain from
+            // rebuilding the list on every tick — and the buffers are reused for the same reason.
+            DateTime utc = DateTime.UtcNow;
+            if ((utc - _lastTileUtc).TotalSeconds < 2) return;
+            _lastTileUtc = utc;
+
+            SensorReading[] all = _sampler.Sensors();
+            List<SensorReading> show = _tileBuf;
+            show.Clear();
+            if (_settings.TempTiles.Count == 0)
+            {
+                // No explicit choice yet: show everything that reads, which is what makes the
+                // section work out of the box.
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i].Kind == SensorKind.Temperature) show.Add(all[i]);
+            }
+            else
+            {
+                foreach (string id in _settings.TempTiles)
+                    for (int i = 0; i < all.Length; i++)
+                        if (all[i].Id == id) { show.Add(all[i]); break; }
+            }
+
+            _tileSb.Length = 0;
+            for (int i = 0; i < show.Count; i++) { _tileSb.Append(show[i].Id); _tileSb.Append(';'); }
+            string sig = _tileSb.ToString();
+
+            _tempTiles.Items = show.ToArray();
+            _tempTiles.Invalidate();
+            if (sig != _tileSig)
+            {
+                _tileSig = sig;
+                DoLayout();
+            }
+        }
+
         // ---------- tick ----------
 
         private void OnTick(object sender, EventArgs e)
@@ -768,6 +833,8 @@ namespace LoadView
 
             MetricsSnapshot s = _sampler.Sample();
             DateTime now = DateTime.Now;
+
+            RefreshTiles();
 
             _clock.TimeText = now.ToString(_settings.ShowSeconds ? "HH:mm:ss" : "HH:mm", CultureInfo.CurrentCulture);
             _clock.Invalidate();
