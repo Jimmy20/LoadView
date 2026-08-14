@@ -4,11 +4,16 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.1";
+        public const string Version = "3.0.2";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.2",
+            "  - Fix: Fans now sits below Temperatures, as intended. 3.0.0 inserted the two",
+            "    new sections in reverse, and an existing layout of clock/Fans/Temperatures",
+            "    is corrected once on load",
+            "",
             "3.0.1",
             "  - Fix: the note in the Settings footer was cut off mid-sentence where the",
             "    OK button starts",

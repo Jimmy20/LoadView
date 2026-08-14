@@ -550,12 +550,32 @@ namespace LoadView
                         result.Add(k);
                 }
             }
-            // New sections land under the clock rather than at the very end.
+            // New sections land under the clock rather than at the very end — and each one goes after
+            // the previous one in this list, not all at the same spot. Inserting each at clock+1 put
+            // them in reverse (clock, fans, temps), which is how v3.0.0 shipped fans above
+            // temperatures. If a section is already placed somewhere, the next one follows it there,
+            // so a layout the user arranged is respected.
+            string prev = SecClock;
             foreach (string k in AfterClock)
             {
-                if (result.Contains(k)) continue;
-                int at = result.IndexOf(SecClock);
-                if (at >= 0) result.Insert(at + 1, k); else result.Insert(0, k);
+                if (!result.Contains(k))
+                {
+                    int at = result.IndexOf(prev);
+                    if (at >= 0) result.Insert(at + 1, k); else result.Insert(0, k);
+                }
+                prev = k;
+            }
+
+            // One-time repair for configurations written by v3.0.0/v3.0.1, which have exactly
+            // "clock, fans, temps". Deliberately narrow: only that adjacent pair, and only directly
+            // after the clock, so someone who genuinely wants fans first keeps their arrangement as
+            // soon as it differs from the shipped mistake by even one position.
+            int c = result.IndexOf(SecClock);
+            if (c >= 0 && c + 2 < result.Count
+                && result[c + 1] == SecFans && result[c + 2] == SecTemps)
+            {
+                result[c + 1] = SecTemps;
+                result[c + 2] = SecFans;
             }
             foreach (string k in AllSections)
                 if (!result.Contains(k)) result.Add(k);
