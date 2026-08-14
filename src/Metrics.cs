@@ -11,8 +11,8 @@ namespace LoadView
         public bool RamValid;  public double RamPercent; public double RamUsedBytes; public double RamTotalBytes;
         public bool DiskValid; public double DiskPercent; public double DiskReadBps; public double DiskWriteBps;
         public bool NetValid;  public double NetDownBps;  public double NetUpBps;
-        public bool CpuTempValid; public double CpuTempC;
-        public bool GpuTempValid; public double GpuTempC;
+        // Temperatures deliberately absent: they are sensors, not metrics, and they reach the overlay
+        // through TempProvider.Sensors() for the tile section.
     }
 
     // Samples system utilization once per call. Everything is read through PDH
@@ -46,6 +46,7 @@ namespace LoadView
         private readonly IntPtr _netSent;
         private readonly IntPtr _gpu;
         private readonly IntPtr _thermal;
+        private int _pdhTempTick;
         private readonly TempProvider _temps;
 
         // Refresh interval (set by the form) — used to size the sleep/resume gap threshold.
@@ -134,18 +135,15 @@ namespace LoadView
                 s.RamPercent = 100.0 * s.RamUsedBytes / m.ullTotalPhys;
             }
 
-            // Temperatures (best-effort). CPU order: the accurate driver-helper value (if the
-            // user enabled it) wins, then the ACPI thermal-zone perf counter, then the background
-            // WMI provider.
-            double cpuTemp;
-            if (_temps.TryGetCpuHelper(out cpuTemp))
-            { s.CpuTempValid = true; s.CpuTempC = cpuTemp; }
-            else if (_thermal != IntPtr.Zero && TryMaxKelvinToC(_q.ReadArray(_thermal), out cpuTemp))
-            { s.CpuTempValid = true; s.CpuTempC = cpuTemp; }
-            else { double c; if (_temps.TryGetCpu(out c)) { s.CpuTempValid = true; s.CpuTempC = c; } }
-
-            double gpuTemp;
-            if (_temps.TryGetGpu(out gpuTemp)) { s.GpuTempValid = true; s.GpuTempC = gpuTemp; }
+            // The ACPI thermal-zone perf counter is a CPU-temperature source that only exists here,
+            // because the PDH query lives in this class — hand it to TempProvider, which decides
+            // between it, the WMI thermal zone and the driver helper's reading. Every 5th sample is
+            // plenty for a fallback that many machines do not even expose.
+            if (_thermal != IntPtr.Zero && (_pdhTempTick++ % 5) == 0)
+            {
+                double zone;
+                if (TryMaxKelvinToC(_q.ReadArray(_thermal), out zone)) _temps.SetPdhCpu(zone);
+            }
 
             // Post-resume settle: the rate counters (esp. CPU % Processor Time) read a false
             // ~100% on the first samples after a long gap. Hold the last good rate values for a

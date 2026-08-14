@@ -37,6 +37,11 @@ namespace LoadView
         private double _extCpuC;
         private DateTime _extCpuUtc = DateTime.MinValue;
 
+        // ACPI thermal zone read via PDH, pushed in from MetricsSampler.
+        private double _pdhC;
+        private bool _pdhValid;
+        private DateTime _pdhUtc = DateTime.MinValue;
+
         private readonly Thread _thread;
         private volatile bool _stop;
 
@@ -55,14 +60,26 @@ namespace LoadView
             _thread.Start();
         }
 
-        // CPU: prefer the fresh helper value, else the cached ACPI/WMI reading.
+        // CPU, best source first: the driver helper's reading, then the WMI thermal zone, then the
+        // PDH thermal-zone counter (which only MetricsSampler can read, so it is pushed in here).
         public bool TryGetCpu(out double celsius)
         {
             lock (_lock)
             {
                 if (IsExtCpuFresh()) { celsius = _extCpuC; return true; }
-                celsius = _cpuC; return _cpuValid;
+                if (_cpuValid) { celsius = _cpuC; return true; }
+                if (_pdhValid && (DateTime.UtcNow - _pdhUtc).TotalSeconds < 30)
+                { celsius = _pdhC; return true; }
+                celsius = 0; return false;
             }
+        }
+
+        // The ACPI thermal zone as read through the performance counters, handed over by
+        // MetricsSampler because that is where the PDH query lives.
+        public void SetPdhCpu(double celsius)
+        {
+            if (celsius <= -50 || celsius >= 150) return;
+            lock (_lock) { _pdhC = celsius; _pdhValid = true; _pdhUtc = DateTime.UtcNow; }
         }
 
         // Only the fresh helper (driver) value, if any — lets it win over the ACPI counter.

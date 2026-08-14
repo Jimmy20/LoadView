@@ -91,8 +91,8 @@ namespace LoadView
 
         // temperatures
         public bool TempFahrenheit = false;        // false: show °C, true: show °F
-        public bool ShowCpuTemp = true;            // append CPU temp to the CPU graph readout
-        public bool ShowGpuTemp = true;            // append GPU temp to the GPU graph readout
+        // (ShowCpuTemp / ShowGpuTemp are gone: temperatures had been appended to the CPU and GPU graph
+        // headers, which duplicated the tile section that now owns them.)
         public double TempHotC = 0;                // temp >= this many °C shows in red; 0 = off
         public bool AccurateCpuTempDriver = false; // opt-in: kernel-driver CPU temp (downloaded on enable)
 
@@ -294,8 +294,6 @@ namespace LoadView
             s.ExternalIpEnabled = GetBool(kv, "externalip", s.ExternalIpEnabled);
 
             s.TempFahrenheit = GetBool(kv, "tempfahrenheit", s.TempFahrenheit);
-            s.ShowCpuTemp = GetBool(kv, "showcputemp", s.ShowCpuTemp);
-            s.ShowGpuTemp = GetBool(kv, "showgputemp", s.ShowGpuTemp);
             s.TempHotC = GetDouble(kv, "temphotc", s.TempHotC);
             s.AccurateCpuTempDriver = GetBool(kv, "accuratecputempdriver", s.AccurateCpuTempDriver);
 
@@ -443,8 +441,6 @@ namespace LoadView
                 l.Add("externalip=" + B(ExternalIpEnabled));
 
                 l.Add("tempfahrenheit=" + B(TempFahrenheit));
-                l.Add("showcputemp=" + B(ShowCpuTemp));
-                l.Add("showgputemp=" + B(ShowGpuTemp));
                 l.Add("temphotc=" + D(TempHotC));
                 l.Add("accuratecputempdriver=" + B(AccurateCpuTempDriver));
 

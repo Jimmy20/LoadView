@@ -42,7 +42,7 @@ namespace LoadView
             _tileH, _tileCols, _tileLabel, _tileValue;
         private CheckedListBox _tiles;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
-            _showCpuTemp, _showGpuTemp, _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn;
+            _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn;
         private ComboBox _netUnit, _tempUnit;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
@@ -401,14 +401,9 @@ namespace LoadView
             _tempUnit.SelectedIndexChanged += delegate { UpdateHotEquivalent(); };
             UpdateHotEquivalent();
 
-            GroupHeader("On the graphs");
-            _showCpuTemp = AddCheck("CPU temperature on the CPU graph", _working.ShowCpuTemp,
-                "Append the CPU temperature to the CPU graph's header when it is available.");
-            _showGpuTemp = AddCheck("GPU temperature on the GPU graph", _working.ShowGpuTemp,
-                "Append the GPU temperature to the GPU graph's header when it is available.");
-            Hint("GPU temperature needs no driver and works on NVIDIA / AMD / Intel where");
-            Hint("the driver reports it. CPU temperature without the option below relies on");
-            Hint("the ACPI sensor, which many laptops do not expose at all.");
+            Hint("Disk temperatures need no driver. GPU temperature works on NVIDIA / AMD /");
+            Hint("Intel where the driver reports it. CPU temperature without the option");
+            Hint("below relies on the ACPI sensor, which many laptops do not expose at all.");
 
             GroupHeader("Accurate CPU temperature");
             _accurateDriver = AddCheck("Use the sensor driver", _working.AccurateCpuTempDriver,
@@ -691,8 +686,6 @@ namespace LoadView
             _working.TileValueSize = (float)_tileValue.Value;
 
             _working.TempFahrenheit = (_tempUnit.SelectedIndex == 1);
-            _working.ShowCpuTemp = _showCpuTemp.Checked;
-            _working.ShowGpuTemp = _showGpuTemp.Checked;
             _working.TempHotC = _tempHotOn.Checked ? (double)_tempHot.Value : 0.0;
             _working.AccurateCpuTempDriver = _accurateDriver.Checked;
 
