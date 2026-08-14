@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -69,7 +70,11 @@ namespace LoadView
         public static string InDir() { return Path.Combine(SharedRoot(), "in"); }
 
         private static string CpuTempPath() { return Path.Combine(OutDir(), "cputemp"); }
+        private static string SensorsPath() { return Path.Combine(OutDir(), "sensors"); }
         private static string HeartbeatPath() { return Path.Combine(InDir(), "helper.run"); }
+        // Presence = "also probe the chipset and fans". In in\, the one folder the unprivileged
+        // overlay may write; the SYSTEM helper only ever checks whether it exists.
+        public static string WideSensorsFlagPath() { return Path.Combine(InDir(), "widesensors"); }
         public static string HelperLogPath() { return Path.Combine(OutDir(), "helper.log"); }
 
         // ---- setup stamp: what the elevated setup provisioned, so we can spot a stale install ----
@@ -267,22 +272,27 @@ namespace LoadView
 
         public static void WriteCpuTemp(double celsius)
         {
+            WriteAtomic(CpuTempPath(), celsius.ToString("0.0", CultureInfo.InvariantCulture));
+        }
+
+        // Write a file SYSTEM owns, without ever opening an entry that is already there.
+        //
+        // out\ is admin-only, so this is belt-and-braces behind setup's wipe — but a file planted
+        // before setup ran could be a hard link, and a plain write would follow it and modify the
+        // link's target with SYSTEM's rights (measured in v2.11.0: the write went straight through).
+        // Delete, then CreateNew: an entry we did not just create fails the write instead of
+        // redirecting it. The rename at the end means a reader never sees a half-written file.
+        private static void WriteAtomic(string dst, string text)
+        {
             try
             {
-                string dst = CpuTempPath(), tmp = dst + ".tmp";
-
-                // Never write into an entry that is already there. out\ is admin-only, so this is
-                // belt-and-braces behind setup's wipe — but a cputemp.tmp planted before setup ran
-                // could be a hard link, and WriteAllText would follow it and modify the target as
-                // SYSTEM. Delete, then CreateNew: an entry we did not just create fails the write
-                // instead of redirecting it.
+                string tmp = dst + ".tmp";
                 try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
                 using (FileStream fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    byte[] b = Encoding.ASCII.GetBytes(celsius.ToString("0.0", CultureInfo.InvariantCulture));
+                    byte[] b = Encoding.UTF8.GetBytes(text);
                     fs.Write(b, 0, b.Length);
                 }
-                // Swap it in, so a reader never catches a truncated file.
                 if (File.Exists(dst)) File.Replace(tmp, dst, null);
                 else File.Move(tmp, dst);
             }
@@ -306,6 +316,96 @@ namespace LoadView
             return false;
         }
 
+        // ---- multi-sensor channel: chipset temperatures and fan speeds ----
+        //
+        // cputemp stays exactly as it was, so the shipped CPU-temperature path cannot regress if
+        // anything here goes wrong. This file is additional.
+        //
+        // Format, one sensor per line after a version marker:
+        //     v1
+        //     t|/lpc/nct6797d/temperature/2|Chipset|54.0
+        //     f|/lpc/nct6797d/fan/1|CPU Fan|2412
+        // Written by SYSTEM into a Users:Read folder, so it is trusted input — but it is still parsed
+        // defensively (size cap, line cap, id charset, value range), because a parser that trusts its
+        // input is a parser nobody can safely change later.
+        private const int MaxSensorBytes = 64 * 1024;
+        private const int MaxSensorLines = 200;
+
+        public static void WriteSensors(SensorReading[] readings)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("v1\n");
+            int n = 0;
+            for (int i = 0; i < readings.Length && n < MaxSensorLines; i++)
+            {
+                SensorReading r = readings[i];
+                if (string.IsNullOrEmpty(r.Id)) continue;
+                sb.Append(r.Kind == SensorKind.Fan ? 'f' : 't').Append('|')
+                  .Append(Clean(r.Id)).Append('|')
+                  .Append(Clean(r.Label)).Append('|')
+                  .Append(r.Value.ToString("0.0", CultureInfo.InvariantCulture)).Append('\n');
+                n++;
+            }
+            WriteAtomic(SensorsPath(), sb.ToString());
+        }
+
+        public static SensorReading[] ReadSensors(out DateTime whenUtc)
+        {
+            whenUtc = DateTime.MinValue;
+            try
+            {
+                string p = SensorsPath();
+                if (!File.Exists(p)) return new SensorReading[0];
+                FileInfo fi = new FileInfo(p);
+                if (fi.Length > MaxSensorBytes) return new SensorReading[0];
+                whenUtc = fi.LastWriteTimeUtc;
+
+                string[] lines = File.ReadAllLines(p);
+                if (lines.Length == 0 || lines[0].Trim() != "v1") return new SensorReading[0];
+
+                List<SensorReading> list = new List<SensorReading>();
+                for (int i = 1; i < lines.Length && list.Count < MaxSensorLines; i++)
+                {
+                    string[] f = lines[i].Split('|');
+                    if (f.Length != 4) continue;
+                    bool fan = f[0] == "f";
+                    if (!fan && f[0] != "t") continue;
+                    if (f[1].Length == 0 || f[1].Length > 120) continue;
+
+                    double v;
+                    if (!double.TryParse(f[3], NumberStyles.Float, CultureInfo.InvariantCulture, out v)) continue;
+                    if (fan) { if (v < 0 || v > 20000) continue; }
+                    else { if (v <= 0 || v >= 150) continue; }
+
+                    SensorReading r;
+                    r.Id = f[1];
+                    r.Label = f[2].Length > 0 ? f[2] : f[1];
+                    r.Detail = "";
+                    r.Kind = fan ? SensorKind.Fan : SensorKind.Temperature;
+                    r.Value = v;
+                    list.Add(r);
+                }
+                return list.ToArray();
+            }
+            catch { whenUtc = DateTime.MinValue; return new SensorReading[0]; }
+        }
+
+        // Keep the separator and newlines out of a field, so one odd sensor name cannot corrupt the
+        // whole file.
+        private static string Clean(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            StringBuilder sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length && sb.Length < 120; i++)
+            {
+                char c = s[i];
+                if (c == '|' || c == '\r' || c == '\n') { sb.Append(' '); continue; }
+                if (c < ' ') continue;
+                sb.Append(c);
+            }
+            return sb.ToString().Trim();
+        }
+
         // ---- heartbeat (the overlay writes to in\ while enabled; SYSTEM only stats it) ----
 
         public static void WriteHeartbeat()
@@ -316,6 +416,23 @@ namespace LoadView
                 if (!Directory.Exists(dir)) return;   // provisioned by the elevated setup
                 File.WriteAllText(HeartbeatPath(),
                     DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture));
+            }
+            catch { }
+        }
+
+        // Ask the helper for (or stop asking for) chipset and fan probing. Takes effect when the
+        // helper next starts, which is why the caller restarts it.
+        public static void SetWideSensors(bool on)
+        {
+            try
+            {
+                string p = WideSensorsFlagPath();
+                if (on)
+                {
+                    if (!Directory.Exists(InDir())) return;
+                    if (!File.Exists(p)) File.WriteAllText(p, "1");
+                }
+                else if (File.Exists(p)) File.Delete(p);
             }
             catch { }
         }

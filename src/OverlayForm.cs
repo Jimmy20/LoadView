@@ -49,7 +49,7 @@ namespace LoadView
         private NetTotalsPanel _netTotals;
         private ListPanel _topCpu, _topRam;
         private DrivesPanel _drives;
-        private TilePanel _tempTiles;
+        private TilePanel _tempTiles, _fanTiles;
         private string _tileSig = "";     // relayout only when the set of tiles changes
         private IpPanel _ip;
         private readonly Dictionary<string, Image> _flagCache = new Dictionary<string, Image>();
@@ -124,10 +124,12 @@ namespace LoadView
             _footer = new FooterPanel();
             _tempTiles = new TilePanel();
             _tempTiles.Header = "TEMPERATURES";
+            _fanTiles = new TilePanel();
+            _fanTiles.Header = "FANS (RPM)";
 
             Control[] all = new Control[]
             {
-                _clock, _tempTiles, _cpu, _gpu, _ram, _disk, _net,
+                _clock, _tempTiles, _fanTiles, _cpu, _gpu, _ram, _disk, _net,
                 _netTotals, _topCpu, _topRam, _drives, _ip, _footer
             };
             foreach (Control c in all)
@@ -162,6 +164,7 @@ namespace LoadView
                 case Settings.SecIp: return _ip;
                 case Settings.SecFooter: return _footer;
                 case Settings.SecTemps: return _tempTiles;
+                case Settings.SecFans: return _fanTiles;
             }
             return null;
         }
@@ -394,6 +397,7 @@ namespace LoadView
 
         private void ApplyVisuals()
         {
+            ApplyTheme();
             Opacity = ClampOpacity(_settings.Opacity);
             TopMost = _settings.AlwaysOnTop;
             Log.Enabled = _settings.DebugLog;
@@ -438,12 +442,36 @@ namespace LoadView
                 _net.ClearHistory();
             }
 
-            _tempTiles.TilePx = _settings.TileHeight;
-            _tempTiles.ColumnsWanted = _settings.TileColumns;
-            _tempTiles.LabelSize = _settings.TileLabelSize;
-            _tempTiles.ValueSize = _settings.TileValueSize;
-            _tempTiles.HotC = _settings.TempHotC;
-            _tempTiles.Fahrenheit = _settings.TempFahrenheit;
+            TilePanel[] tiles = new TilePanel[] { _tempTiles, _fanTiles };
+            for (int i = 0; i < tiles.Length; i++)
+            {
+                tiles[i].TilePx = _settings.TileHeight;
+                tiles[i].ColumnsWanted = _settings.TileColumns;
+                tiles[i].LabelSize = _settings.TileLabelSize;
+                tiles[i].ValueSize = _settings.TileValueSize;
+                tiles[i].Fahrenheit = _settings.TempFahrenheit;
+            }
+            _tempTiles.HotC = _settings.TempHotC;   // fans have no "too hot"
+
+            // The helper reads this on startup, so a change only takes effect when it restarts —
+            // hence clearing the heartbeat to make it exit and come back.
+            //
+            // The first pass always writes the flag, even when the setting matches the field's
+            // initial value: otherwise a flag file left behind by a crash (or by an earlier session
+            // that had the option on) would keep the helper probing hardware the settings say to
+            // leave alone.
+            if (!_wideSensorsSynced || _wideSensorsApplied != _settings.WideSensors)
+            {
+                _wideSensorsSynced = true;
+                _wideSensorsApplied = _settings.WideSensors;
+                TempIpc.SetWideSensors(_settings.WideSensors);
+                if (_helperEngaged)
+                {
+                    TempIpc.ClearHeartbeat();
+                    _lastTaskRunUtc = DateTime.MinValue;   // let OnTick start it again promptly
+                    if (!_settings.WideSensors) _sampler.SetExtraSensors(new SensorReading[0]);
+                }
+            }
 
             _ip.ShowWan = _settings.ExternalIpEnabled;
             _sysinfo.ExternalIpEnabled = _settings.ExternalIpEnabled;
@@ -476,6 +504,8 @@ namespace LoadView
         private DateTime _lastHeartbeatUtc = DateTime.MinValue;
         private DateTime _lastTempReadUtc = DateTime.MinValue;
         private int _readyChecks;         // drives the Ready() back-off
+        private bool _wideSensorsApplied; // last value pushed to the helper's request flag
+        private bool _wideSensorsSynced;  // false until the flag file has been made to match once
 
         // Engage/disengage the driver path to match the AccurateCpuTempDriver setting.
         private void UpdateHelper()
@@ -601,6 +631,7 @@ namespace LoadView
                 case Settings.SecIp: return _ip.PreferredHeight();
                 case Settings.SecFooter: return _footer.PreferredHeight();
                 case Settings.SecTemps: return _tempTiles.ContentHeight();   // 0 when nothing is readable
+                case Settings.SecFans: return _fanTiles.ContentHeight();
             }
             return graphH;
         }
@@ -699,6 +730,15 @@ namespace LoadView
                 RestorePosition();
                 ApplyRegion();
             }
+            else if (m.Msg == WM_SETTINGCHANGE)
+            {
+                // Sent with "ImmersiveColorSet" when the light/dark app theme is switched.
+                string what = null;
+                try { if (m.LParam != IntPtr.Zero) what = Marshal.PtrToStringAuto(m.LParam); }
+                catch { }
+                if (what == null || what.IndexOf("ImmersiveColorSet", StringComparison.OrdinalIgnoreCase) >= 0)
+                    OnSystemThemeMaybeChanged();
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -743,6 +783,45 @@ namespace LoadView
             }
         }
 
+        // ---------- theme ----------
+
+        private bool _themeIsDark = true;
+        private bool _themeKnown;
+
+        // Resolve the mode, and when the effective theme actually flips, repaint everything and move
+        // any text colour the user never chose to the new theme's default (see Theme.Remap: white
+        // clock hands on a white panel would otherwise be the first thing anyone reports).
+        private void ApplyTheme()
+        {
+            Theme.Apply(_settings.Theme);
+            if (_themeKnown && _themeIsDark == Theme.IsDark) return;
+            _themeKnown = true;
+            _themeIsDark = Theme.IsDark;
+
+            // Also on the very first resolution, not just on a later flip: starting up in the light
+            // theme with a saved white clock colour drew white on near-white, which is exactly the
+            // case this exists for. Remap only ever touches a colour that still equals the other
+            // theme's default, so a colour the user actually picked survives untouched.
+            _settings.ClockColor = Theme.Remap(_settings.ClockColor, Theme.IsDark, Theme.DefaultClock);
+            _settings.DateColor = Theme.Remap(_settings.DateColor, Theme.IsDark, Theme.DefaultDate);
+            _settings.DayColor = Theme.Remap(_settings.DayColor, Theme.IsDark, Theme.DefaultDay);
+
+            BackColor = Theme.WindowBack;
+            foreach (Control c in Controls) { c.BackColor = Theme.PanelBack; c.Invalidate(); }
+            Invalidate();
+        }
+
+        // Windows broadcasts this when the user switches between the light and dark app theme, which
+        // is the whole point of "follow system" — without it the overlay would only notice on restart.
+        private const int WM_SETTINGCHANGE = 0x001A;
+
+        private void OnSystemThemeMaybeChanged()
+        {
+            if (_settings.Theme != ThemeMode.System) return;
+            ApplyVisuals();
+            DoLayout();
+        }
+
         // ---------- temperature tiles ----------
 
         // Pick the sensors the user wants, in their order, and relayout only when the set changes —
@@ -754,41 +833,51 @@ namespace LoadView
 
         private void RefreshTiles()
         {
-            if (!_settings.GetShow(Settings.SecTemps)) return;
+            bool wantTemps = _settings.GetShow(Settings.SecTemps);
+            bool wantFans = _settings.GetShow(Settings.SecFans);
+            if (!wantTemps && !wantFans) return;
+
             // The sensors behind this only move every ~3 s, so there is nothing to gain from
-            // rebuilding the list on every tick — and the buffers are reused for the same reason.
+            // rebuilding the lists on every tick — and the buffers are reused for the same reason.
             DateTime utc = DateTime.UtcNow;
             if ((utc - _lastTileUtc).TotalSeconds < 2) return;
             _lastTileUtc = utc;
 
             SensorReading[] all = _sampler.Sensors();
-            List<SensorReading> show = _tileBuf;
-            show.Clear();
-            if (_settings.TempTiles.Count == 0)
-            {
-                // No explicit choice yet: show everything that reads, which is what makes the
-                // section work out of the box.
-                for (int i = 0; i < all.Length; i++)
-                    if (all[i].Kind == SensorKind.Temperature) show.Add(all[i]);
-            }
-            else
-            {
-                foreach (string id in _settings.TempTiles)
-                    for (int i = 0; i < all.Length; i++)
-                        if (all[i].Id == id) { show.Add(all[i]); break; }
-            }
-
             _tileSb.Length = 0;
-            for (int i = 0; i < show.Count; i++) { _tileSb.Append(show[i].Id); _tileSb.Append(';'); }
-            string sig = _tileSb.ToString();
+            if (wantTemps) Fill(_tempTiles, all, SensorKind.Temperature, _settings.TempTiles);
+            if (wantFans) Fill(_fanTiles, all, SensorKind.Fan, _settings.FanTiles);
 
-            _tempTiles.Items = show.ToArray();
-            _tempTiles.Invalidate();
+            string sig = _tileSb.ToString();
             if (sig != _tileSig)
             {
                 _tileSig = sig;
-                DoLayout();
+                DoLayout();   // the section's height depends on how many tiles there are
             }
+        }
+
+        private void Fill(TilePanel panel, SensorReading[] all, SensorKind kind, List<string> chosen)
+        {
+            List<SensorReading> show = _tileBuf;
+            show.Clear();
+            if (chosen.Count == 0)
+            {
+                // No explicit choice yet: show everything of this kind that reads, which is what
+                // makes the section work out of the box.
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i].Kind == kind) show.Add(all[i]);
+            }
+            else
+            {
+                foreach (string id in chosen)
+                    for (int i = 0; i < all.Length; i++)
+                        if (all[i].Id == id && all[i].Kind == kind) { show.Add(all[i]); break; }
+            }
+
+            for (int i = 0; i < show.Count; i++) { _tileSb.Append(show[i].Id); _tileSb.Append(';'); }
+            _tileSb.Append('|');
+            panel.Items = show.ToArray();
+            panel.Invalidate();
         }
 
         // ---------- tick ----------
@@ -820,6 +909,17 @@ namespace LoadView
                 if (_pawnReady && (utc - _lastTempReadUtc).TotalSeconds >= 2)
                 {
                     _lastTempReadUtc = utc;
+
+                    // Chipset + fan readings, if the wider probing is switched on. Stale data is
+                    // dropped rather than shown: a fan tile frozen at its last value would be worse
+                    // than no tile.
+                    if (_settings.WideSensors)
+                    {
+                        DateTime sw;
+                        SensorReading[] extra = TempIpc.ReadSensors(out sw);
+                        _sampler.SetExtraSensors((utc - sw).TotalSeconds < 15 ? extra : new SensorReading[0]);
+                    }
+
                     double hc; DateTime hw;
                     if (TempIpc.TryReadCpuTemp(out hc, out hw) && (utc - hw).TotalSeconds < 10)
                         _sampler.SetCpuTempOverride(hc);

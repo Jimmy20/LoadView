@@ -23,8 +23,8 @@ namespace LoadView
         public bool Fahrenheit;
         public bool ShowHeader = true;
 
-        private static readonly Color TileBack = Color.FromArgb(38, 38, 44);
-        private static readonly Color HotColor = Color.FromArgb(0xE0, 0x4F, 0x4F);
+        private static Color TileBack { get { return Theme.TileBack; } }
+        private static Color HotColor { get { return Theme.Alert; } }
 
         private Font _labelFont, _valueFont, _headerFont;
         private float _builtLabel, _builtValue;

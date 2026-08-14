@@ -7,9 +7,9 @@ namespace LoadView
 {
     internal sealed class AboutForm : Form
     {
-        private static readonly Color Bg = Color.FromArgb(32, 32, 36);
-        private static readonly Color Ink = Color.FromArgb(232, 232, 237);
-        private static readonly Color Accent = Color.FromArgb(0x6F, 0xA8, 0xFF);
+        private static Color Bg { get { return Theme.DialogBack; } }
+        private static Color Ink { get { return Theme.Text; } }
+        private static Color Accent { get { return Theme.Accent; } }
 
         public AboutForm()
         {
@@ -43,7 +43,7 @@ namespace LoadView
             log.ReadOnly = true;
             log.ScrollBars = ScrollBars.Vertical;
             log.BorderStyle = BorderStyle.FixedSingle;
-            log.BackColor = Color.FromArgb(24, 24, 28);
+            log.BackColor = Theme.NavBack;
             log.ForeColor = Ink;
             log.Text = string.Join("\r\n", AppInfo.Changelog);
             log.SelectionStart = 0;
@@ -66,9 +66,9 @@ namespace LoadView
             ok.Text = "OK";
             ok.DialogResult = DialogResult.OK;
             ok.FlatStyle = FlatStyle.Flat;
-            ok.BackColor = Color.FromArgb(56, 56, 64);
+            ok.BackColor = Theme.ButtonBack;
             ok.ForeColor = Ink;
-            ok.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+            ok.FlatAppearance.BorderColor = Theme.Border;
             ok.SetBounds(ClientSize.Width - 90, 302, 74, 28);
             Controls.Add(ok);
 

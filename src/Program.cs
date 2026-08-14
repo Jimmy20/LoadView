@@ -56,6 +56,9 @@ namespace LoadView
             // (the helper now runs as SYSTEM and uses %ProgramFiles% / %ProgramData% instead).
             TempIpc.CleanLegacyUserFiles();
 
+            // Resolve the theme before the first window exists, so nothing flashes dark on the way in.
+            try { Theme.Apply(Settings.Load().Theme); } catch { }
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new OverlayForm());

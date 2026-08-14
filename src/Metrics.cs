@@ -102,6 +102,12 @@ namespace LoadView
             return _temps != null ? _temps.Sensors() : new SensorReading[0];
         }
 
+        // Chipset / fan readings handed over by the elevated helper.
+        public void SetExtraSensors(SensorReading[] readings)
+        {
+            if (_temps != null) _temps.SetExtraSensors(readings);
+        }
+
         public MetricsSnapshot Sample()
         {
             DateTime now = DateTime.UtcNow;

@@ -237,6 +237,31 @@ LoadView.exe --temp-remove
 Leave the option **off** (the default) to stay completely driver-free and admin-free. It only affects
 **CPU** temperature; GPU temperature never needs a driver.
 
+## Temperatures and fans
+
+Temperatures have their own section — small labelled tiles, under the clock by default:
+
+- **Disks** need **no driver and no administrator**. LoadView asks the drive itself over a query that
+  Windows allows any user to make, so an SSD's temperature just appears. Tiles are labelled by drive
+  letter (`C:`) where one can be determined.
+- **GPU** works wherever the graphics driver reports it (NVIDIA / AMD / Intel).
+- **CPU** shows the ACPI sensor if your firmware exposes one — many laptops do not. For the real core
+  temperature, enable the optional driver (see below).
+- **Chipset temperatures and fan speeds** live on the motherboard's controller chip, which cannot be
+  read without the driver **and** a second switch (*Settings → Fans*). Plenty of laptops expose none
+  even then; the section hides itself when there is nothing to show, rather than showing an empty box.
+
+Pick which components appear, and in what order, under *Settings → Temperatures* and *Settings → Fans*.
+Selections are remembered per component (by serial number for disks), so adding a drive later does not
+shuffle what you chose.
+
+## Theme
+
+*Settings → Window → Theme*: **Follow system** (the default), **Dark** or **Light**. Follow system
+tracks the Windows app-theme setting and switches with it while running. If you never picked your own
+clock / date / weekday colours, they move to colours that suit the new background; colours you did pick
+are left alone.
+
 ## Notes
 
 - Metrics refresh once per second; drives, top processes and IPs are sampled on background

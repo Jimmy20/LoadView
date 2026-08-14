@@ -23,7 +23,22 @@ namespace LoadView
         // arrays every time meant a steady stream of GDI handle churn and garbage for a picture
         // that mostly doesn't change. All of it is cached and only rebuilt when the colour (or the
         // sample count, which stops changing after the first minute) actually differs.
-        private static readonly Pen GridPen = new Pen(GridColor);
+        // Cached, but rebuilt when the theme changes it — a pen created once at static init would
+        // keep drawing the dark grid on a light background.
+        private static Pen _gridPen;
+        private static Color _gridPenColor;
+
+        private static Pen GridPen()
+        {
+            Color want = Theme.Grid;
+            if (_gridPen == null || _gridPenColor != want)
+            {
+                if (_gridPen != null) _gridPen.Dispose();
+                _gridPen = new Pen(want);
+                _gridPenColor = want;
+            }
+            return _gridPen;
+        }
         private readonly Pen[] _pens = new Pen[2];
         private readonly Color[] _penColors = new Color[2];
         private readonly SolidBrush[] _brushes = new SolidBrush[2];
@@ -63,13 +78,13 @@ namespace LoadView
         public double MinScale = 1;  // floor for auto-scale
         public double FixedMax = 0;          // 0 = auto (or 100 for percent graphs)
         public double AlertThreshold = 0;    // 0 = off; when latest sample >= this, the graph turns red
-        public Color AlertColor = Color.FromArgb(0xE0, 0x4F, 0x4F);
-
-        private static readonly Color PanelBack = Color.FromArgb(26, 26, 30);
-        private static readonly Color GridColor = Color.FromArgb(45, 45, 52);
-        public static readonly Color NormalValueColor = Color.FromArgb(228, 228, 233);
-        private static readonly Color ValueColor = NormalValueColor;
-        private static readonly Color DimColor = Color.FromArgb(150, 150, 158);
+        // Read from Theme at paint time: a theme switch is then a repaint, not a restart.
+        private static Color PanelBack { get { return Theme.PanelBack; } }
+        private static Color GridColor { get { return Theme.Grid; } }
+        public static Color NormalValueColor { get { return Theme.Value; } }
+        private static Color ValueColor { get { return Theme.Value; } }
+        private static Color DimColor { get { return Theme.Dim; } }
+        private Color AlertColor { get { return Theme.Alert; } }
 
         public GraphPanel(bool twoSeries)
         {
@@ -141,9 +156,9 @@ namespace LoadView
             for (int i = 1; i < 4; i++)
             {
                 int y = gr.Top + gr.Height * i / 4;
-                g.DrawLine(GridPen, gr.Left, y, gr.Right, y);
+                g.DrawLine(GridPen(), gr.Left, y, gr.Right, y);
             }
-            g.DrawRectangle(GridPen, gr.Left, gr.Top, gr.Width - 1, gr.Height - 1);
+            g.DrawRectangle(GridPen(), gr.Left, gr.Top, gr.Width - 1, gr.Height - 1);
 
             if (!Available)
             {

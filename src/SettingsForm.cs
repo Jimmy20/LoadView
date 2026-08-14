@@ -10,12 +10,15 @@ namespace LoadView
     // the overlay via the preview callback; OK keeps it (caller persists), Cancel reverts.
     internal sealed class SettingsForm : Form
     {
-        private static readonly Color Bg = Color.FromArgb(32, 32, 36);
-        private static readonly Color NavBg = Color.FromArgb(24, 24, 28);
-        private static readonly Color Ink = Color.FromArgb(232, 232, 237);
-        private static readonly Color Dim = Color.FromArgb(150, 150, 158);
-        private static readonly Color Accent = Color.FromArgb(0x6F, 0xA8, 0xFF);
-        private static readonly Color FieldBg = Color.FromArgb(46, 46, 52);
+        // All from Theme, so the dialog matches the overlay — and so choosing a theme inside the
+        // dialog can restyle the dialog itself rather than leaving a dark window claiming to preview
+        // a light one.
+        private static Color Bg { get { return Theme.DialogBack; } }
+        private static Color NavBg { get { return Theme.NavBack; } }
+        private static Color Ink { get { return Theme.Text; } }
+        private static Color Dim { get { return Theme.Dim; } }
+        private static Color Accent { get { return Theme.Accent; } }
+        private static Color FieldBg { get { return Theme.FieldBack; } }
 
         private Settings _working;
         private readonly Action<Settings> _preview;
@@ -40,10 +43,11 @@ namespace LoadView
         private NumericUpDown _width, _graphH, _driveH, _refreshMs, _clockSize, _dateSize, _daySize,
             _driveLblSize, _listSize, _ipSize, _netTotalsSize, _ipLanSec, _ipWanSec, _tempHot,
             _tileH, _tileCols, _tileLabel, _tileValue;
-        private CheckedListBox _tiles;
+        private CheckedListBox _tiles, _fans;
+        private Label _fansEmptyHint;
         private CheckBox _seconds, _dateBold, _dayBold, _driveLblBold, _extIp, _top, _lock, _startup, _debugLog,
-            _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn;
-        private ComboBox _netUnit, _tempUnit;
+            _accurateDriver, _showWanCountry, _showWanFlag, _tempHotOn, _wideSensors;
+        private ComboBox _netUnit, _tempUnit, _theme;
         private Button _clockColor, _dateColor, _dayColor, _netDownColor, _netUpColor;
         private CheckedListBox _order;
         private TrackBar _opacity;
@@ -124,6 +128,7 @@ namespace LoadView
             AddPage("Drives & processes", BuildDrivesProcesses);
             AddPage("Network & IP", BuildNetwork);
             AddPage("Temperatures", BuildTemperatures);
+            AddPage("Fans", BuildFans);
             AddPage("Advanced", BuildAdvanced);
         }
 
@@ -162,6 +167,11 @@ namespace LoadView
 
         private void BuildWindow()
         {
+            _theme = AddChoice("Theme", new string[] { "Follow system", "Dark", "Light" },
+                _working.Theme == ThemeMode.Dark ? 1 : (_working.Theme == ThemeMode.Light ? 2 : 0),
+                "Follow system tracks the Windows app theme, including when you switch it.");
+            _theme.SelectedIndexChanged += delegate { RestyleForTheme(); };
+
             _width = AddNum("Window width (px)", Settings.MinWidth, Settings.MaxWidth, _working.Width,
                 "Overall width of the overlay panel.");
 
@@ -291,7 +301,7 @@ namespace LoadView
             b.SetBounds(x, _y, 38, 26);
             b.BackColor = c;
             b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+            b.FlatAppearance.BorderColor = Theme.Border;
             b.Click += delegate { if (PickColor(b)) OnChanged(); };
             _panel.Controls.Add(b);
             return b;
@@ -377,11 +387,13 @@ namespace LoadView
             BuildTileList();
 
             _tileH = AddNum("Tile size (px)", 24, 120, _working.TileHeight,
-                "Height of each tile; the width follows so they stay roughly square.");
+                "Height of each tile; the width follows so they stay roughly square. Shared with Fans.");
             _tileCols = AddNum("Tiles per row", 0, 12, _working.TileColumns,
-                "0 = fit as many as the window width allows.");
-            _tileLabel = AddNum("Label size (pt)", 6, 24, (int)_working.TileLabelSize, "Text size of the tile labels.");
-            _tileValue = AddNum("Reading size (pt)", 7, 40, (int)_working.TileValueSize, "Text size of the readings.");
+                "0 = fit as many as the window width allows. Shared with Fans.");
+            _tileLabel = AddNum("Label size (pt)", 6, 24, (int)_working.TileLabelSize,
+                "Text size of the tile labels. Shared with Fans.");
+            _tileValue = AddNum("Reading size (pt)", 7, 40, (int)_working.TileValueSize,
+                "Text size of the readings. Shared with Fans.");
 
             GroupHeader("Display");
             _tempUnit = AddChoice("Units", new string[] { "°C  Celsius", "°F  Fahrenheit" },
@@ -401,18 +413,15 @@ namespace LoadView
             _tempUnit.SelectedIndexChanged += delegate { UpdateHotEquivalent(); };
             UpdateHotEquivalent();
 
-            Hint("Disk temperatures need no driver. GPU temperature works on NVIDIA / AMD /");
-            Hint("Intel where the driver reports it. CPU temperature without the option");
-            Hint("below relies on the ACPI sensor, which many laptops do not expose at all.");
+            Hint("Disks need no driver; GPU works where the graphics driver reports it.");
 
             GroupHeader("Accurate CPU temperature");
             _accurateDriver = AddCheck("Use the sensor driver", _working.AccurateCpuTempDriver,
                 "Reads the true CPU core temperature. On first enable it installs the free, signed "
                 + "PawnIO driver (one administrator prompt) and works even with Windows Memory "
                 + "Integrity on. After that it starts silently — no more prompts. Off = no driver.");
-            Hint("Installs the free, open-source, signed PawnIO driver — one administrator");
-            Hint("prompt the first time, silent afterwards. Leave it off to keep LoadView");
-            Hint("completely driver-free; the CPU temperature then stays blank on most laptops.");
+            Hint("Installs the free, signed PawnIO driver: one administrator prompt, then");
+            Hint("silent. Without it the CPU temperature stays blank on most laptops.");
         }
 
         // The sensor set is only known at runtime, so the list is built from what is readable now,
@@ -421,57 +430,86 @@ namespace LoadView
         // drive does not quietly discard the choice.
         private void BuildTileList()
         {
-            _tiles = new CheckedListBox();
-            _tiles.BackColor = FieldBg;
-            _tiles.ForeColor = Ink;
-            _tiles.BorderStyle = BorderStyle.FixedSingle;
-            _tiles.IntegralHeight = false;
-            _tiles.CheckOnClick = true;
-            _tiles.SetBounds(LabelX, _y, 300, 108);
+            Label unused;
+            _tiles = BuildSensorList(_working.TempTiles, SensorKind.Temperature, out unused);
+        }
+
+        private CheckedListBox BuildSensorList(List<string> chosen, SensorKind kind, out Label emptyHint)
+        {
+            CheckedListBox box = new CheckedListBox();
+            box.BackColor = FieldBg;
+            box.ForeColor = Ink;
+            box.BorderStyle = BorderStyle.FixedSingle;
+            box.IntegralHeight = false;
+            box.CheckOnClick = true;
+            box.SetBounds(LabelX, _y, 300, 108);
 
             SensorReading[] found = _sensors != null ? _sensors() : new SensorReading[0];
-            List<string> order = new List<string>(_working.TempTiles);
+            List<string> order = new List<string>(chosen);
             // Anything discovered but not in the saved order goes on the end, so new hardware shows
             // up rather than staying invisible.
             for (int i = 0; i < found.Length; i++)
-                if (found[i].Kind == SensorKind.Temperature && !order.Contains(found[i].Id))
+                if (found[i].Kind == kind && !order.Contains(found[i].Id))
                     order.Add(found[i].Id);
 
-            bool showAll = _working.TempTiles.Count == 0;
+            bool showAll = chosen.Count == 0;
             foreach (string id in order)
             {
                 SensorReading? match = null;
                 for (int i = 0; i < found.Length; i++) if (found[i].Id == id) { match = found[i]; break; }
-                int idx = _tiles.Items.Add(new TileItem(id, match));
-                _tiles.SetItemChecked(idx, showAll || _working.TempTiles.Contains(id));
+                int idx = box.Items.Add(new TileItem(id, match));
+                box.SetItemChecked(idx, showAll || chosen.Contains(id));
             }
-            _tiles.ItemCheck += delegate { BeginInvoke(new MethodInvoker(OnChanged)); };
-            _panel.Controls.Add(_tiles);
+            box.ItemCheck += delegate { BeginInvoke(new MethodInvoker(OnChanged)); };
+            _panel.Controls.Add(box);
 
-            Button up = SmallButton("▲", _tiles.Right + 10, _y);
-            up.Click += delegate { MoveTile(-1); };
+            Button up = SmallButton("▲", box.Right + 10, _y);
+            up.Click += delegate { MoveInList(box, -1); };
             _tips.SetToolTip(up, "Move the selected tile left");
             _panel.Controls.Add(up);
-            Button down = SmallButton("▼", _tiles.Right + 10, _y + 36);
-            down.Click += delegate { MoveTile(1); };
+            Button down = SmallButton("▼", box.Right + 10, _y + 36);
+            down.Click += delegate { MoveInList(box, 1); };
             _tips.SetToolTip(down, "Move the selected tile right");
             _panel.Controls.Add(down);
-            _y += _tiles.Height + 8;
+            _y += box.Height + 4;
+
+            // Say why the list is empty instead of showing a blank box.
+            emptyHint = null;
+            if (box.Items.Count == 0)
+                emptyHint = Hint(kind == SensorKind.Fan
+                    ? "No fan speeds are readable right now."
+                    : "No temperature sensors are readable right now.");
+            _y += 4;
+            return box;
         }
 
-        private void MoveTile(int delta)
+        private void MoveInList(CheckedListBox box, int delta)
         {
-            int i = _tiles.SelectedIndex;
+            int i = box.SelectedIndex;
             if (i < 0) return;
             int j = i + delta;
-            if (j < 0 || j >= _tiles.Items.Count) return;
-            object item = _tiles.Items[i];
-            bool chk = _tiles.GetItemChecked(i);
-            _tiles.Items.RemoveAt(i);
-            _tiles.Items.Insert(j, item);
-            _tiles.SetItemChecked(j, chk);
-            _tiles.SelectedIndex = j;
+            if (j < 0 || j >= box.Items.Count) return;
+            object item = box.Items[i];
+            bool chk = box.GetItemChecked(i);
+            box.Items.RemoveAt(i);
+            box.Items.Insert(j, item);
+            box.SetItemChecked(j, chk);
+            box.SelectedIndex = j;
             OnChanged();
+        }
+
+        // Read a checked list back into an ID list; all-ticked becomes empty, i.e. "show whatever is
+        // there", so hardware added later appears by itself.
+        private static List<string> ListFrom(CheckedListBox box)
+        {
+            List<string> ids = new List<string>();
+            bool all = true;
+            for (int i = 0; i < box.Items.Count; i++)
+            {
+                if (box.GetItemChecked(i)) ids.Add(((TileItem)box.Items[i]).Id);
+                else all = false;
+            }
+            return all ? new List<string>() : ids;
         }
 
         private sealed class TileItem
@@ -504,6 +542,24 @@ namespace LoadView
                 _tempHotEquiv.Text = "= " + f.ToString("0") + " °F";
             }
             else _tempHotEquiv.Text = "";
+        }
+
+        private void BuildFans()
+        {
+            GroupHeader("Tiles");
+            Hint("Check the fans to show.  ▲ ▼ sets their order.");
+            _fans = BuildSensorList(_working.FanTiles, SensorKind.Fan, out _fansEmptyHint);
+            Hint("Tile and text sizes are shared with the Temperatures page.");
+
+            GroupHeader("Where fan speeds come from");
+            Hint("Fan speeds live on the motherboard's controller chip, so they need the");
+            Hint("sensor driver plus the switch below. Many laptops expose none even then;");
+            Hint("the section stays hidden when there is nothing to show.");
+            _wideSensors = AddCheck("Read chipset + fan sensors", _working.WideSensors,
+                "Lets the reader probe the motherboard and its controller chip, which is what exposes "
+                + "fan speeds and chipset temperatures. Needs the sensor driver from the Temperatures "
+                + "page. Separate switch because this probes more of your hardware than a CPU "
+                + "temperature does.");
         }
 
         private void BuildAdvanced()
@@ -572,6 +628,53 @@ namespace LoadView
 
             AcceptButton = ok;
             CancelButton = cancel;
+        }
+
+        // Repaint the dialog in the newly chosen theme. OnChanged has already pushed the setting to
+        // the overlay, which resolved Theme — this walks the controls we styled at build time and
+        // gives them the new colours, so the preview is honest rather than "the overlay is light and
+        // the window telling you so is still dark".
+        private void RestyleForTheme()
+        {
+            BackColor = Bg;
+            ForeColor = Ink;
+            if (_nav != null) { _nav.BackColor = NavBg; _nav.ForeColor = Ink; _nav.Invalidate(); }
+            if (_host != null) _host.BackColor = Bg;
+            foreach (Control c in Controls) Restyle(c);
+            Invalidate(true);
+        }
+
+        private void Restyle(Control c)
+        {
+            if (c is Panel) c.BackColor = Bg;
+            else if (c is Label)
+            {
+                // Group headers and hints are dim/accent; body labels are ink. Distinguish by the
+                // colour they were given, since that is the only thing that marks them apart.
+                Color f = c.ForeColor;
+                if (SameRgb(f, Theme.Accent) || IsAccentish(f)) c.ForeColor = Theme.Accent;
+                else if (IsDimish(f)) c.ForeColor = Dim;
+                else c.ForeColor = Ink;
+            }
+            else if (c is NumericUpDown || c is ComboBox || c is CheckedListBox || c is ListBox)
+            { c.BackColor = FieldBg; c.ForeColor = Ink; }
+            else if (c is CheckBox) c.ForeColor = Ink;
+            else if (c is Button)
+            {
+                // Colour swatches keep their colour; only chrome buttons are restyled.
+                Button b = (Button)c;
+                if (b.Text.Length > 0) StyleButton(b);
+                else b.FlatAppearance.BorderColor = Theme.Border;
+            }
+            foreach (Control k in c.Controls) Restyle(k);
+        }
+
+        private static bool SameRgb(Color a, Color b) { return a.R == b.R && a.G == b.G && a.B == b.B; }
+        private static bool IsAccentish(Color c) { return c.B > c.R + 40 && c.B > 120; }
+        private static bool IsDimish(Color c)
+        {
+            int max = Math.Max(c.R, Math.Max(c.G, c.B)), min = Math.Min(c.R, Math.Min(c.G, c.B));
+            return max - min < 24 && max > 90 && max < 190;   // a grey, neither ink nor black
         }
 
         // Push the live edit to the overlay (no disk write).
@@ -670,16 +773,9 @@ namespace LoadView
             _working.ListSize = (float)_listSize.Value;
             _working.IpSize = (float)_ipSize.Value;
 
-            // An all-ticked list is stored as an empty list, i.e. "show whatever is there" — so
-            // hardware added later appears by itself instead of being silently excluded.
-            List<string> tiles = new List<string>();
-            bool all = true;
-            for (int i = 0; i < _tiles.Items.Count; i++)
-            {
-                if (_tiles.GetItemChecked(i)) tiles.Add(((TileItem)_tiles.Items[i]).Id);
-                else all = false;
-            }
-            _working.TempTiles = all ? new List<string>() : tiles;
+            _working.TempTiles = ListFrom(_tiles);
+            _working.FanTiles = ListFrom(_fans);
+            _working.WideSensors = _wideSensors.Checked;
             _working.TileHeight = (int)_tileH.Value;
             _working.TileColumns = (int)_tileCols.Value;
             _working.TileLabelSize = (float)_tileLabel.Value;
@@ -689,6 +785,8 @@ namespace LoadView
             _working.TempHotC = _tempHotOn.Checked ? (double)_tempHot.Value : 0.0;
             _working.AccurateCpuTempDriver = _accurateDriver.Checked;
 
+            _working.Theme = _theme.SelectedIndex == 1 ? ThemeMode.Dark
+                : (_theme.SelectedIndex == 2 ? ThemeMode.Light : ThemeMode.System);
             _working.Opacity = _opacity.Value / 100.0;
             _working.AlwaysOnTop = _top.Checked;
             _working.Locked = _lock.Checked;
@@ -764,7 +862,7 @@ namespace LoadView
             b.SetBounds(CtrlX, _y, 90, 24);
             b.BackColor = c;
             b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+            b.FlatAppearance.BorderColor = Theme.Border;
             Label hex = new Label();
             hex.SetBounds(CtrlX + 100, _y + 3, 70, 20);
             hex.ForeColor = Dim;
@@ -845,9 +943,9 @@ namespace LoadView
         private static void StyleButton(Button b)
         {
             b.FlatStyle = FlatStyle.Flat;
-            b.BackColor = Color.FromArgb(56, 56, 64);
-            b.ForeColor = Color.FromArgb(232, 232, 237);
-            b.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 98);
+            b.BackColor = Theme.ButtonBack;
+            b.ForeColor = Theme.Text;
+            b.FlatAppearance.BorderColor = Theme.Border;
         }
 
         private static string Hex(Color c)

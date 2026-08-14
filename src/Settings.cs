@@ -25,23 +25,27 @@ namespace LoadView
         public const string SecIp = "ip";
         public const string SecFooter = "footer";
         public const string SecTemps = "temps";
+        public const string SecFans = "fans";
 
         public static readonly string[] AllSections = new string[]
         {
-            SecClock, SecTemps, SecCpu, SecGpu, SecMem, SecDisk, SecNet,
+            SecClock, SecTemps, SecFans, SecCpu, SecGpu, SecMem, SecDisk, SecNet,
             SecNetTotals, SecTopCpu, SecTopRam, SecDrives, SecIp, SecFooter
         };
 
         // Sections added after a release: an existing settings.ini has an order= line without them,
         // and appending would bury them at the bottom. These go in right after the clock instead,
         // which is where they belong by default.
-        private static readonly string[] AfterClock = new string[] { SecTemps };
+        private static readonly string[] AfterClock = new string[] { SecTemps, SecFans };
 
         // window / position
         public bool HasPosition;
         public int X;
         public int Y;
         public double Opacity = 0.9;
+
+        // appearance
+        public ThemeMode Theme = ThemeMode.System;
 
         // layout
         public int Width = 250;
@@ -67,6 +71,10 @@ namespace LoadView
         // section useful with no configuration at all; the moment the user unticks one, the explicit
         // list takes over. Stored as sensor IDs, never indexes.
         public List<string> TempTiles = new List<string>();
+        public List<string> FanTiles = new List<string>();
+        // Chipset temperatures and fan speeds need the driver AND this second, separate opt-in,
+        // because reading them means letting the library probe the SuperIO / embedded controller.
+        public bool WideSensors = false;
         public int TileHeight = 46;
         public int TileColumns = 0;          // 0 = fit as many as the width allows
         public float TileLabelSize = 8f;
@@ -130,12 +138,14 @@ namespace LoadView
         // On by default: the panel reports zero height when no sensor is readable, so a machine with
         // nothing to show simply never displays the section rather than an empty frame.
         public bool ShowTemps = true;
+        public bool ShowFans = true;
 
         public Settings Clone()
         {
             Settings s = (Settings)MemberwiseClone();
             s.Order = new List<string>(Order);          // deep-copy the mutable lists
             s.TempTiles = new List<string>(TempTiles);
+            s.FanTiles = new List<string>(FanTiles);
             s.Positions = new Dictionary<string, int[]>();
             foreach (KeyValuePair<string, int[]> e in Positions)
                 s.Positions[e.Key] = new int[] { e.Value[0], e.Value[1] };
@@ -172,6 +182,7 @@ namespace LoadView
                 case SecIp: return ShowIp;
                 case SecFooter: return ShowFooter;
                 case SecTemps: return ShowTemps;
+                case SecFans: return ShowFans;
             }
             return false;
         }
@@ -193,6 +204,7 @@ namespace LoadView
                 case SecIp: ShowIp = v; break;
                 case SecFooter: ShowFooter = v; break;
                 case SecTemps: ShowTemps = v; break;
+                case SecFans: ShowFans = v; break;
             }
         }
 
@@ -213,6 +225,7 @@ namespace LoadView
                 case SecIp: return "IP addresses";
                 case SecFooter: return "Date / weekday";
                 case SecTemps: return "Temperatures";
+                case SecFans: return "Fans";
             }
             return key;
         }
@@ -263,6 +276,7 @@ namespace LoadView
             s.HasPosition = hx && hy;
             s.Opacity = GetDouble(kv, "opacity", s.Opacity);
 
+            s.Theme = ParseTheme(GetString(kv, "theme", "system"));
             s.Width = GetInt(kv, "width", s.Width);
             s.GraphHeight = GetInt(kv, "graphheight", s.GraphHeight);
             s.DriveRowHeight = GetInt(kv, "driverowheight", s.DriveRowHeight);
@@ -279,6 +293,8 @@ namespace LoadView
             s.DayColor = GetColor(kv, "daycolor", s.DayColor);
 
             s.TempTiles = SplitList(GetString(kv, "temptiles", ""));
+            s.FanTiles = SplitList(GetString(kv, "fantiles", ""));
+            s.WideSensors = GetBool(kv, "widesensors", s.WideSensors);
             s.TileHeight = GetInt(kv, "tileheight", s.TileHeight);
             s.TileColumns = GetInt(kv, "tilecolumns", s.TileColumns);
             s.TileLabelSize = GetFloat(kv, "tilelabelsize", s.TileLabelSize);
@@ -410,6 +426,7 @@ namespace LoadView
                     l.Add("y=" + Y.ToString(CultureInfo.InvariantCulture));
                 }
                 l.Add("opacity=" + Opacity.ToString("0.00", CultureInfo.InvariantCulture));
+                l.Add("theme=" + ThemeName(Theme));
                 l.Add("width=" + Width.ToString(CultureInfo.InvariantCulture));
                 l.Add("graphheight=" + GraphHeight.ToString(CultureInfo.InvariantCulture));
                 l.Add("driverowheight=" + DriveRowHeight.ToString(CultureInfo.InvariantCulture));
@@ -426,6 +443,8 @@ namespace LoadView
                 l.Add("daycolor=" + Hex(DayColor));
 
                 l.Add("temptiles=" + string.Join(",", TempTiles.ToArray()));
+                l.Add("fantiles=" + string.Join(",", FanTiles.ToArray()));
+                l.Add("widesensors=" + B(WideSensors));
                 l.Add("tileheight=" + TileHeight.ToString(CultureInfo.InvariantCulture));
                 l.Add("tilecolumns=" + TileColumns.ToString(CultureInfo.InvariantCulture));
                 l.Add("tilelabelsize=" + F(TileLabelSize));
@@ -488,6 +507,24 @@ namespace LoadView
 
         // Keep only known keys (in saved order), then append any known keys that are missing
         // (forward-compatibility when new sections are added).
+        private static ThemeMode ParseTheme(string s)
+        {
+            if (s != null)
+            {
+                string v = s.Trim().ToLowerInvariant();
+                if (v == "dark") return ThemeMode.Dark;
+                if (v == "light") return ThemeMode.Light;
+            }
+            return ThemeMode.System;
+        }
+
+        private static string ThemeName(ThemeMode m)
+        {
+            if (m == ThemeMode.Dark) return "dark";
+            if (m == ThemeMode.Light) return "light";
+            return "system";
+        }
+
         // Comma-separated ini value -> list, trimmed, empties dropped. Used for the tile selection.
         private static List<string> SplitList(string raw)
         {

@@ -17,9 +17,10 @@ namespace LoadView
 
     internal abstract class InfoPanelBase : Control
     {
-        protected static readonly Color PanelBack = Color.FromArgb(26, 26, 30);
-        protected static readonly Color TextColor = Color.FromArgb(232, 232, 237);
-        protected static readonly Color DimColor = Color.FromArgb(150, 150, 158);
+        // From Theme at paint time, so a theme switch is a repaint (see Theme).
+        protected static Color PanelBack { get { return Theme.PanelBack; } }
+        protected static Color TextColor { get { return Theme.Text; } }
+        protected static Color DimColor { get { return Theme.Dim; } }
 
         protected InfoPanelBase()
         {
@@ -155,8 +156,8 @@ namespace LoadView
         public float LabelSize = 9f;
         public bool LabelBold = false;
 
-        private static readonly Color Track = Color.FromArgb(52, 52, 60);
-        private static readonly Color NearFull = Color.FromArgb(0xE0, 0x4F, 0x4F);
+        private static Color Track { get { return Theme.BarTrack; } }
+        private static Color NearFull { get { return Theme.Alert; } }
 
         private Font _hdr, _lbl;
         private float _bLblSize;
@@ -235,7 +236,7 @@ namespace LoadView
                     Color fc = pct >= 90 ? NearFull : Accent;
                     using (SolidBrush fb = new SolidBrush(fc)) g.FillRectangle(fb, new Rectangle(pad, barY, fillW, barH));
                 }
-                using (Pen bp = new Pen(Color.FromArgb(70, 70, 78)))
+                using (Pen bp = new Pen(Theme.BarEdge))
                     g.DrawRectangle(bp, track.X, track.Y, track.Width - 1, track.Height - 1);
             }
         }
