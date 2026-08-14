@@ -4,11 +4,17 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.2";
+        public const string Version = "3.0.3";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.3",
+            "  - Fix: the CPU temperature tile no longer disappears for a few seconds now",
+            "    and then. The reader and the overlay were contending for the same small",
+            "    file: each could block the other, so a reading was occasionally published",
+            "    late enough to be treated as stale",
+            "",
             "3.0.2",
             "  - Fix: Fans now sits below Temperatures, as intended. 3.0.0 inserted the two",
             "    new sections in reverse, and an existing layout of clock/Fans/Temperatures",

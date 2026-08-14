@@ -100,10 +100,15 @@ namespace LoadView
             lock (_lock) { _extCpuC = celsius; _extCpuUtc = DateTime.UtcNow; }
         }
 
+        // 30 s, not 10: a temperature moves slowly, so holding the last reading through a hiccup is
+        // far better than a tile that blinks out and back. The old 10 s sat close enough to the
+        // helper's occasional publish gaps that it lost the race in normal use.
+        private const double ExtCpuMaxAgeSec = 30.0;
+
         private bool IsExtCpuFresh()
         {
             return _extCpuUtc != DateTime.MinValue
-                && (DateTime.UtcNow - _extCpuUtc).TotalSeconds < 10.0
+                && (DateTime.UtcNow - _extCpuUtc).TotalSeconds < ExtCpuMaxAgeSec
                 && _extCpuC > -50 && _extCpuC < 150;
         }
 

@@ -507,6 +507,11 @@ namespace LoadView
         private bool _wideSensorsApplied; // last value pushed to the helper's request flag
         private bool _wideSensorsSynced;  // false until the flag file has been made to match once
 
+        // How old a published reading may be before it is ignored. Generous on purpose: the reader
+        // publishes every ~2 s but can miss a cycle, and a tile that disappears for a few seconds is
+        // worse than one showing a value a few seconds old.
+        private const double SensorMaxAgeSec = 30.0;
+
         // Engage/disengage the driver path to match the AccurateCpuTempDriver setting.
         private void UpdateHelper()
         {
@@ -917,11 +922,12 @@ namespace LoadView
                     {
                         DateTime sw;
                         SensorReading[] extra = TempIpc.ReadSensors(out sw);
-                        _sampler.SetExtraSensors((utc - sw).TotalSeconds < 15 ? extra : new SensorReading[0]);
+                        _sampler.SetExtraSensors((utc - sw).TotalSeconds < SensorMaxAgeSec
+                            ? extra : new SensorReading[0]);
                     }
 
                     double hc; DateTime hw;
-                    if (TempIpc.TryReadCpuTemp(out hc, out hw) && (utc - hw).TotalSeconds < 10)
+                    if (TempIpc.TryReadCpuTemp(out hc, out hw) && (utc - hw).TotalSeconds < SensorMaxAgeSec)
                         _sampler.SetCpuTempOverride(hc);
                     else if ((utc - _lastTaskRunUtc).TotalSeconds >= 15)
                     {

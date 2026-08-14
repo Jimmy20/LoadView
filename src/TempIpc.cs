@@ -293,10 +293,56 @@ namespace LoadView
                     byte[] b = Encoding.UTF8.GetBytes(text);
                     fs.Write(b, 0, b.Length);
                 }
-                if (File.Exists(dst)) File.Replace(tmp, dst, null);
-                else File.Move(tmp, dst);
+
+                // Retry the swap. A reader that has the file open blocks the rename, and losing the
+                // race used to mean skipping the whole publish cycle: measured gaps of 3.4 s and 8.8 s
+                // between writes, against the overlay's staleness limit, which is what made the
+                // temperature tile vanish for a few seconds now and then.
+                for (int attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(dst)) File.Replace(tmp, dst, null);
+                        else File.Move(tmp, dst);
+                        return;
+                    }
+                    catch (IOException)
+                    {
+                        if (attempt >= 3) throw;
+                        System.Threading.Thread.Sleep(15);
+                    }
+                }
             }
             catch { }
+        }
+
+        // Read a file the SYSTEM side may be replacing underneath us.
+        //
+        // FileShare.ReadWrite | FileShare.Delete is the point: without Delete, this handle blocks the
+        // writer's rename, and the writer then skips its cycle. Without the retry, the reader itself
+        // fails whenever it lands in the moment where the old file is already gone and the new one is
+        // not yet in place. Both were measured: 3 FileNotFoundException and 5 "used by another
+        // process" out of 870 reads.
+        private static string ReadShared(string path, int maxBytes)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                               FileShare.ReadWrite | FileShare.Delete))
+                    {
+                        if (fs.Length > maxBytes) return null;
+                        using (StreamReader sr = new StreamReader(fs)) return sr.ReadToEnd();
+                    }
+                }
+                catch (IOException)
+                {
+                    if (attempt >= 2) return null;
+                    System.Threading.Thread.Sleep(10);
+                }
+                catch { return null; }
+            }
         }
 
         public static bool TryReadCpuTemp(out double celsius, out DateTime whenUtc)
@@ -307,8 +353,10 @@ namespace LoadView
                 string p = CpuTempPath();
                 if (!File.Exists(p)) return false;
                 whenUtc = File.GetLastWriteTimeUtc(p);
+                string text = ReadShared(p, 64);
+                if (text == null) return false;
                 double c;
-                if (double.TryParse(File.ReadAllText(p).Trim(), NumberStyles.Float,
+                if (double.TryParse(text.Trim(), NumberStyles.Float,
                     CultureInfo.InvariantCulture, out c) && c > -50 && c < 150)
                 { celsius = c; return true; }
             }
@@ -360,13 +408,15 @@ namespace LoadView
                 if (fi.Length > MaxSensorBytes) return new SensorReading[0];
                 whenUtc = fi.LastWriteTimeUtc;
 
-                string[] lines = File.ReadAllLines(p);
+                string body = ReadShared(p, MaxSensorBytes);
+                if (body == null) { whenUtc = DateTime.MinValue; return new SensorReading[0]; }
+                string[] lines = body.Split('\n');
                 if (lines.Length == 0 || lines[0].Trim() != "v1") return new SensorReading[0];
 
                 List<SensorReading> list = new List<SensorReading>();
                 for (int i = 1; i < lines.Length && list.Count < MaxSensorLines; i++)
                 {
-                    string[] f = lines[i].Split('|');
+                    string[] f = lines[i].TrimEnd('\r').Split('|');
                     if (f.Length != 4) continue;
                     bool fan = f[0] == "f";
                     if (!fan && f[0] != "t") continue;
