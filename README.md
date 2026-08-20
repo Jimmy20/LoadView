@@ -10,22 +10,25 @@
 <td valign="top">
 <p><strong>Task Manager's performance graphs, pinned to the corner of your screen.</strong>
 LoadView is a lightweight, always-on-top overlay showing live <strong>CPU, GPU, RAM, disk and
-network</strong> graphs — plus temperatures, per-drive usage, top processes, a clock and your IP —
-as a <strong>single portable <code>.exe</code></strong>. No install, no dependencies.</p>
+network</strong> graphs — plus <strong>temperature tiles for the CPU, GPU and every disk</strong>,
+fan speeds, per-drive usage, top processes, a clock and your IP — as a
+<strong>single portable <code>.exe</code></strong>. No install, no dependencies.</p>
 <p><em>A tiny, portable alternative to Rainmeter, Sidebar Diagnostics and heavyweight monitoring suites.</em></p>
 <p><strong>⬇ <a href="https://github.com/Jimmy20/LoadView/releases/latest">Download the latest release</a></strong> &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; free &amp; open-source</p>
 <h3>Highlights</h3>
 <ul>
 <li><strong>Everything at a glance</strong> — live CPU / GPU / RAM / disk / network graphs, plus <strong>session data-transfer totals</strong> (downloaded / uploaded), top-5 CPU &amp; RAM processes, and a clock, date &amp; weekday.</li>
-<li><strong>Drives &amp; IP</strong> — per-drive usage bars with free space, <strong>including mapped network drives</strong>, plus your <strong>LAN and public (WAN) IP</strong>.</li>
-<li><strong>Temperatures for every GPU</strong> (NVIDIA / AMD / Intel, no driver needed) plus an <em>optional</em> accurate CPU temperature that <strong>works even with Windows Memory Integrity turned on</strong>.</li>
-<li><strong>Vendor-neutral &amp; DPI-agnostic</strong> — the same counters Task Manager uses; crisp at any scaling; remembers its position per screen resolution.</li>
+<li><strong>Temperature tiles</strong> — CPU, GPU and <strong>every disk that reports one</strong>, as labelled squares. <strong>Disk temperatures need no driver and no administrator</strong> (SATA drives included, read from SMART). Each kind of component has its own "too hot" threshold, because 70&nbsp;°C is an ordinary CPU and a worrying disk.</li>
+<li><strong>Fan speeds (RPM)</strong> — their own section on boards that expose them, next to a <strong>chipset temperature</strong>.</li>
+<li><strong>Accurate CPU temperature</strong> (optional) — one administrator prompt once, then it starts silently on every launch, <strong>works with Windows Memory Integrity on</strong>, and keeps working <strong>even when your Windows account is not an administrator</strong>.</li>
+<li><strong>Drives &amp; IP</strong> — per-drive usage bars with free space, <strong>including mapped network drives</strong>, plus your <strong>LAN and public (WAN) IP</strong> with an optional country and flag.</li>
+<li><strong>Dark, light or follow-system theme</strong>; vendor-neutral and DPI-agnostic — the same counters Task Manager uses, crisp at any scaling, and it remembers its position per screen resolution.</li>
 <li><strong>Fully configurable</strong> — resize, reorder or hide any section; per-graph colours, max &amp; red alerts; MB/s or Mbps; °C/°F; opacity; always-on-top or coverable; lock.</li>
 <li><strong>Single portable exe</strong> — one <code>LoadView.exe</code>, no install and no dependencies; runs on any Windows 10/11 PC.</li>
 </ul>
 </td>
 <td valign="top" width="260">
-<img src="docs/Screenshot.png" width="245" alt="LoadView overlay: CPU, GPU, RAM, disk and network graphs, top processes, drives, IP and clock">
+<img src="docs/Screenshot.png" width="245" alt="LoadView overlay: clock, temperature tiles, fan speeds, CPU/GPU/RAM/disk/network graphs, top processes, drives and IP">
 </td>
 </tr>
 </table>
