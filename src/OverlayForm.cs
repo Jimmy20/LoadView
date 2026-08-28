@@ -473,7 +473,7 @@ namespace LoadView
                 {
                     TempIpc.ClearHeartbeat();
                     _lastTaskRunUtc = DateTime.MinValue;   // let OnTick start it again promptly
-                    if (!_settings.WideSensors) _sampler.SetExtraSensors(new SensorReading[0]);
+                    if (!_settings.WideSensors) _sampler.ClearExtraSensors();
                 }
             }
 
@@ -919,15 +919,16 @@ namespace LoadView
                 {
                     _lastTempReadUtc = utc;
 
-                    // Chipset + fan readings, if the wider probing is switched on. Stale data is
-                    // dropped rather than shown: a fan tile frozen at its last value would be worse
-                    // than no tile.
+                    // Chipset + fan readings, if the wider probing is switched on. Only what actually
+                    // arrived is merged in: a read that failed, or data old enough that the helper is
+                    // plainly gone, says nothing about whether a given fan still exists, and the
+                    // readings expire by themselves — so there is deliberately nothing to clear here.
                     if (_settings.WideSensors)
                     {
                         DateTime sw;
                         SensorReading[] extra = TempIpc.ReadSensors(out sw);
-                        _sampler.SetExtraSensors((utc - sw).TotalSeconds < SensorMaxAgeSec
-                            ? extra : new SensorReading[0]);
+                        if (sw != DateTime.MinValue && (utc - sw).TotalSeconds < SensorMaxAgeSec)
+                            _sampler.SetExtraSensors(extra);
                     }
 
                     double hc; DateTime hw;

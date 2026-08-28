@@ -114,7 +114,12 @@ namespace LoadView
                     // Chipset + fan readings, published alongside the CPU temperature.
                     if (wide)
                     {
-                        try { TempIpc.WriteSensors(ReadWideSensors(hardwareProp, computer, !logged)); }
+                        try
+                        {
+                            SensorReading[] w = ReadWideSensors(hardwareProp, computer, !logged);
+                            LogDropped(w);
+                            TempIpc.WriteSensors(w);
+                        }
                         catch (Exception ex) { TempIpc.HelperLog("wide sensors: " + ex.Message); }
                     }
 
@@ -159,6 +164,41 @@ namespace LoadView
                 AppDomain.CurrentDomain.AssemblyResolve -= resolver;
                 TempIpc.HelperLog("helper stopped");
             }
+        }
+
+        // A sensor that answered on an earlier pass but not on this one. The library reports a
+        // sensor's Value as null when a read does not land — another program polling the same SuperIO
+        // chip is enough — and this is what used to take a fan tile off the screen for a couple of
+        // seconds. The overlay now keeps the last reading, so this is only here to say how often it
+        // happens on a given board, and it is capped so a chip that never answers cannot fill the log.
+        private static readonly System.Collections.Generic.List<string> _seenIds =
+            new System.Collections.Generic.List<string>();
+        private static int _dropLogs;
+
+        private static void LogDropped(SensorReading[] now)
+        {
+            System.Text.StringBuilder missing = null;
+            for (int i = 0; i < _seenIds.Count; i++)
+            {
+                bool here = false;
+                for (int j = 0; j < now.Length; j++)
+                    if (now[j].Id == _seenIds[i]) { here = true; break; }
+                if (here) continue;
+                if (missing == null) missing = new System.Text.StringBuilder();
+                else missing.Append(", ");
+                missing.Append(_seenIds[i]);
+            }
+
+            if (missing != null && _dropLogs < 10)
+            {
+                _dropLogs++;
+                TempIpc.HelperLog("sensor read came back empty for: " + missing
+                    + (_dropLogs == 10 ? " (not logging this again)" : ""));
+            }
+
+            for (int j = 0; j < now.Length; j++)
+                if (!string.IsNullOrEmpty(now[j].Id) && !_seenIds.Contains(now[j].Id))
+                    _seenIds.Add(now[j].Id);
         }
 
         // The overlay asks for the wider probing by dropping a marker file into in\ — the only folder

@@ -103,6 +103,11 @@ namespace LoadView
         }
 
         // Chipset / fan readings handed over by the elevated helper.
+        public void ClearExtraSensors()
+        {
+            if (_temps != null) _temps.ClearExtraSensors();
+        }
+
         public void SetExtraSensors(SensorReading[] readings)
         {
             if (_temps != null) _temps.SetExtraSensors(readings);

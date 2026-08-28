@@ -49,8 +49,58 @@ namespace LoadView
         private readonly AmdGpuTemp _amd = new AmdGpuTemp();
         private readonly IntelGpuTemp _intel = new IntelGpuTemp();
         private readonly DiskTemp _disk = new DiskTemp();
-        private SensorReading[] _diskReadings;
-        private SensorReading[] _extra;
+        // Disk readings, and the chipset/fan readings pushed in from the elevated helper. Both are
+        // held per sensor rather than as one array that every poll replaces wholesale — see SensorHold.
+        private readonly SensorHold _diskHold = new SensorHold();
+        private readonly SensorHold _extraHold = new SensorHold();
+
+        // A poll that misses a sensor is not the same as that sensor being gone, and treating the two
+        // alike is what made a tile vanish for a few seconds now and then: the driver helper reports a
+        // sensor's Value as null on the odd pass (another program polling the same SuperIO chip is
+        // enough), and a disk's IOCTL can decline once while the drive is busy. Each reading is kept
+        // with the time it was last seen and stands on its own until it goes stale, so one bad poll is
+        // invisible while something really removed still disappears.
+        //
+        // Not thread-safe by itself: every caller here already holds _lock.
+        private sealed class SensorHold
+        {
+            private struct Held
+            {
+                public SensorReading Reading;
+                public DateTime SeenUtc;
+            }
+            private readonly List<Held> _items = new List<Held>();
+
+            public void Merge(SensorReading[] readings)
+            {
+                if (readings == null) return;
+                DateTime now = DateTime.UtcNow;
+                for (int i = 0; i < readings.Length; i++)
+                {
+                    if (string.IsNullOrEmpty(readings[i].Id)) continue;
+                    Held h;
+                    h.Reading = readings[i];
+                    h.SeenUtc = now;
+
+                    int at = -1;
+                    for (int j = 0; j < _items.Count; j++)
+                        if (_items[j].Reading.Id == readings[i].Id) { at = j; break; }
+
+                    if (at >= 0) _items[at] = h;   // in place, so the tile order stays put
+                    else _items.Add(h);
+                }
+            }
+
+            public void Clear() { _items.Clear(); }
+
+            public void AppendFresh(List<SensorReading> into, double maxAgeSec)
+            {
+                DateTime now = DateTime.UtcNow;
+                for (int i = _items.Count - 1; i >= 0; i--)
+                    if ((now - _items[i].SeenUtc).TotalSeconds >= maxAgeSec) _items.RemoveAt(i);
+                for (int i = 0; i < _items.Count; i++) into.Add(_items[i].Reading);
+            }
+        }
 
         public TempProvider()
         {
@@ -100,15 +150,16 @@ namespace LoadView
             lock (_lock) { _extCpuC = celsius; _extCpuUtc = DateTime.UtcNow; }
         }
 
-        // 30 s, not 10: a temperature moves slowly, so holding the last reading through a hiccup is
-        // far better than a tile that blinks out and back. The old 10 s sat close enough to the
-        // helper's occasional publish gaps that it lost the race in normal use.
-        private const double ExtCpuMaxAgeSec = 30.0;
+        // 30 s, not 10: a reading moves slowly, so holding the last one through a hiccup is far
+        // better than a tile that blinks out and back. The old 10 s sat close enough to the helper's
+        // occasional publish gaps that it lost the race in normal use. Shared by the CPU override and
+        // the helper's chipset/fan readings, which have the same publish cadence and the same problem.
+        private const double ExtMaxAgeSec = 30.0;
 
         private bool IsExtCpuFresh()
         {
             return _extCpuUtc != DateTime.MinValue
-                && (DateTime.UtcNow - _extCpuUtc).TotalSeconds < ExtCpuMaxAgeSec
+                && (DateTime.UtcNow - _extCpuUtc).TotalSeconds < ExtMaxAgeSec
                 && _extCpuC > -50 && _extCpuC < 150;
         }
 
@@ -135,7 +186,7 @@ namespace LoadView
                 {
                     _cpuValid = cpuOk; _cpuC = cpu;
                     _gpuValid = gpuOk; _gpuC = gpu;
-                    if (disks != null) _diskReadings = disks;
+                    if (disks != null) _diskHold.Merge(disks);
                 }
                 pass++;
                 for (int i = 0; i < 30 && !_stop; i++) Thread.Sleep(100); // ~3 s
@@ -155,16 +206,29 @@ namespace LoadView
             if (TryGetGpu(out v)) list.Add(Make("gpu", "GPU", "Graphics processor", v));
             lock (_lock)
             {
-                if (_diskReadings != null) list.AddRange(_diskReadings);
-                if (_extra != null) list.AddRange(_extra);
+                _diskHold.AppendFresh(list, ExtMaxAgeSec);
+                _extraHold.AppendFresh(list, ExtMaxAgeSec);
             }
             return list.ToArray();
         }
 
-        // Readings pushed in from the elevated helper (chipset, fans). Empty until stage 3 ships.
+        // Readings pushed in from the elevated helper (chipset, fans).
+        //
+        // Merged per sensor, not assigned as a whole. A publish that happens to be missing one sensor
+        // used to take its tile off the screen for a cycle, which is what made fan speeds vanish for
+        // a couple of seconds now and then: the library reports a sensor's Value as null on the odd
+        // poll — another program touching the same SuperIO chip is enough — and the helper can only
+        // publish what it managed to read. Each reading now stands on its own for ExtMaxAgeSec, so a
+        // single bad poll is invisible while a fan that is really gone still disappears.
         public void SetExtraSensors(SensorReading[] readings)
         {
-            lock (_lock) { _extra = readings; }
+            lock (_lock) { _extraHold.Merge(readings); }
+        }
+
+        // Switching the wider probing off should take the tiles away now, not in 30 s.
+        public void ClearExtraSensors()
+        {
+            lock (_lock) { _extraHold.Clear(); }
         }
 
         private static SensorReading Make(string id, string label, string detail, double value)

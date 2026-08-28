@@ -4,11 +4,17 @@ namespace LoadView
     internal static class AppInfo
     {
         public const string Name = "LoadView";
-        public const string Version = "3.0.6";
+        public const string Version = "3.0.7";
         public const string RepoUrl = "https://github.com/Jimmy20/LoadView";
 
         public static readonly string[] Changelog = new string[]
         {
+            "3.0.7",
+            "  - Fix: a fan tile no longer vanishes for a couple of seconds now and then. One",
+            "    poll that failed to read a sensor was treated as that sensor being gone, so the",
+            "    tile went with it until the next poll. Every reading is now held for 30 seconds,",
+            "    the same as the CPU temperature - which covers disk and chipset tiles too",
+            "",
             "3.0.6",
             "  - The red 'too hot' threshold is now one per kind of component - CPU, GPU, Disks,",
             "    Chipset & others - each switchable on its own. One number could not fit them all:",
